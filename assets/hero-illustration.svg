@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 860" fill="none">
+  <style>
+    @keyframes print-head-travel { 0%,100% { transform: translateX(-18px); } 50% { transform: translateX(18px); } }
+    @keyframes spool-turn { to { transform: rotate(360deg); } }
+    @keyframes filament-flow { to { stroke-dashoffset: -32; } }
+    @keyframes layer-pass { 0% { stroke-dashoffset: 180; opacity: .15; } 25%,75% { opacity: .95; } 100% { stroke-dashoffset: -180; opacity: .15; } }
+    .print-head { transform-box: fill-box; transform-origin: center; animation: print-head-travel 3.2s ease-in-out infinite; }
+    .spool-rotate { transform-box: fill-box; transform-origin: center; animation: spool-turn 18s linear infinite; }
+    .printed-model { clip-path: url(#model-build); }
+    .filament { stroke-dasharray: 4 5; animation: filament-flow .48s linear infinite; }
+    .print-pass { stroke-dasharray: 5 4; animation: layer-pass 3.2s ease-in-out infinite; }
+    @media (prefers-reduced-motion: reduce) { .print-head,.spool-rotate,.filament,.print-pass { animation: none !important; } .printed-model { clip-path: none; } .print-pass { opacity: .7; stroke-dashoffset: 0; } }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="75" y1="60" x2="910" y2="820" gradientUnits="userSpaceOnUse"><stop stop-color="#282a27"/><stop offset=".55" stop-color="#171916"/><stop offset="1" stop-color="#101210"/></linearGradient>
+    <linearGradient id="gold" x1="330" y1="420" x2="688" y2="672" gradientUnits="userSpaceOnUse"><stop stop-color="#f0c36e"/><stop offset=".48" stop-color="#c88930"/><stop offset="1" stop-color="#74481d"/></linearGradient>
+    <linearGradient id="metal" x1="430" y1="74" x2="520" y2="292" gradientUnits="userSpaceOnUse"><stop stop-color="#b8b9ae"/><stop offset=".45" stop-color="#62665f"/><stop offset="1" stop-color="#292c28"/></linearGradient>
+    <linearGradient id="bed" x1="170" y1="636" x2="800" y2="780" gradientUnits="userSpaceOnUse"><stop stop-color="#30342d"/><stop offset=".5" stop-color="#1e211d"/><stop offset="1" stop-color="#35372f"/></linearGradient>
+    <pattern id="grid" width="44" height="44" patternUnits="userSpaceOnUse"><path d="M44 0H0V44" stroke="#aaa58f" stroke-opacity=".075"/></pattern>
+    <pattern id="layers" width="14" height="10" patternUnits="userSpaceOnUse"><path d="M0 9.5H14" stroke="#fff0c4" stroke-opacity=".32" stroke-width="1"/></pattern>
+    <filter id="shadow" x="210" y="350" width="650" height="470" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse"><feGaussianBlur stdDeviation="18"/></filter>
+    <clipPath id="model-build" clipPathUnits="userSpaceOnUse"><rect x="340" y="648" width="320" height="0"><animate attributeName="y" values="648;438;438;648" keyTimes="0;.75;.9;1" dur="8s" repeatCount="indefinite"/><animate attributeName="height" values="0;210;210;0" keyTimes="0;.75;.9;1" dur="8s" repeatCount="indefinite"/></rect></clipPath>
+  </defs>
+  <path fill="url(#bg)" d="M0 0h1000v860H0z"/><path fill="url(#grid)" d="M0 0h1000v860H0z"/>
+  <g opacity=".52" stroke="#d4a249" stroke-opacity=".26"><path d="M0 208h1000M0 702h1000M127 0v860M876 0v860"/><path d="m74 155 154-89 155 89v179l-155 89-154-89z"/><path d="m770 104 91-53 91 53v106l-91 53-91-53z"/></g>
+  <g class="spool-rotate" opacity=".72"><circle cx="787" cy="267" r="112" fill="#191b18" stroke="#78796e" stroke-width="11"/><circle cx="787" cy="267" r="86" stroke="#c28e42" stroke-opacity=".65" stroke-width="3"/><circle cx="787" cy="267" r="47" fill="#252823" stroke="#939184" stroke-width="10"/><circle cx="787" cy="267" r="16" fill="#101210"/><path d="M787 182v41m85 44h-41m-44 85v-41m-85-44h41" stroke="#bfa36e" stroke-width="8"/><path d="M784 160h6v25h-6z" fill="#e3a746"/></g>
+  <path d="M251 88v499M749 88v499M251 92h498" stroke="#666b63" stroke-width="18" stroke-linecap="round"/><path d="M263 102v469M737 102v469M267 104h466" stroke="#b4b3a5" stroke-opacity=".46" stroke-width="3"/>
+  <g class="print-head"><path d="M469 96h61v174l-13 28h-35l-13-28z" fill="url(#metal)" stroke="#a4a59a" stroke-width="3"/><path d="M478 113h43v34h-43z" fill="#252823" stroke="#c1bca9" stroke-opacity=".65"/><path d="M478 178h43v69h-43z" fill="#383c36" stroke="#171916" stroke-width="4"/><path d="m481 298 12-28h13l13 28-10 22h-18z" fill="#d79b3d" stroke="#f1ca75" stroke-width="3"/><path class="filament" d="M499 320v120" stroke="#eab657" stroke-width="3"/></g>
+  <path d="m500 361 259 143v74L500 725 241 578v-74z" fill="#000" opacity=".42" filter="url(#shadow)"/>
+  <path d="m500 385 251 140v61L500 727 249 586v-61z" fill="url(#bed)" stroke="#74796c" stroke-width="3"/><path d="m500 411 205 115v40L500 681 295 566v-40z" fill="#171a16" stroke="#ae8e57" stroke-opacity=".7" stroke-width="2"/>
+  <g class="printed-model"><path d="m500 440 153 86v35L500 648l-153-87v-35z" fill="url(#gold)" stroke="#f0c36e" stroke-width="3"/><path d="m500 440 153 86v35L500 648l-153-87v-35z" fill="url(#layers)"/>
+  <path d="m500 465 107 61v22l-107 61-107-61v-22z" stroke="#f8dfa6" stroke-opacity=".9" stroke-width="3"/><path d="m500 485 69 40-69 39-69-39z" fill="#29251c" stroke="#f4d693" stroke-width="3"/><path d="m500 496 48 29-48 28-48-28z" fill="url(#gold)"/><circle cx="500" cy="525" r="8" fill="#fff0be"/>
+  <path d="m500 425 174 98M326 523l174 98" stroke="#f1ce85" stroke-opacity=".78" stroke-width="2"/><path class="print-pass" d="M430 526h140" stroke="#fff0be" stroke-width="4" stroke-linecap="round"/></g>
+  <g fill="#d59a3a"><circle cx="251" cy="88" r="8"/><circle cx="749" cy="88" r="8"/><circle cx="251" cy="587" r="8"/><circle cx="749" cy="587" r="8"/></g>
+</svg>
