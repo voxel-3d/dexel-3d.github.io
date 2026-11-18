@@ -11,9 +11,65 @@ function apiUrl(route,params={}){
 let selectedDelivery=null;
 
 const filters=document.querySelectorAll('[data-filter]');
-filters.forEach(button=>button.addEventListener('click',()=>{filters.forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});document.querySelectorAll('.work').forEach(w=>{w.hidden=button.dataset.filter!=='all'&&w.dataset.category!==button.dataset.filter})}));
+const gallery=document.getElementById('works-gallery');
+const workSlots=[...gallery.querySelectorAll('.work-slot')];
+const workItems=[...gallery.querySelectorAll('.work-slide')];
+let activeFilter='all';
+const slotTimers=new WeakMap();
+
+function activateSlide(slot,index){
+  const slides=[...slot.querySelectorAll('.work-slide')];
+  const next=index%slides.length;
+  slot.dataset.activeIndex=String(next);
+  slides.forEach((slide,i)=>{
+    const active=i===next;
+    slide.classList.toggle('is-active',active);
+    slide.setAttribute('aria-hidden',String(!active));
+    slide.inert=!active;
+  });
+}
+function clearSlotTimer(slot){
+  const timer=slotTimers.get(slot);
+  if(timer)clearTimeout(timer);
+  slotTimers.delete(slot);
+}
+function scheduleSlot(slot,delay=4600){
+  clearSlotTimer(slot);
+  if(activeFilter!=='all')return;
+  slotTimers.set(slot,setTimeout(()=>{
+    if(activeFilter==='all'&&!slot.matches(':hover')&&!slot.matches(':focus-within')){
+      activateSlide(slot,Number(slot.dataset.activeIndex||0)+1);
+    }
+    scheduleSlot(slot,4600);
+  },delay));
+}
+function showPortfolioFilter(filter){
+  activeFilter=filter;
+  gallery.classList.toggle('is-filtered',filter!=='all');
+  workItems.forEach(item=>{const matches=filter==='all'||item.dataset.category===filter;item.hidden=!matches;item.inert=!matches;item.setAttribute('aria-hidden',String(!matches))});
+  workSlots.forEach((slot,i)=>{
+    clearSlotTimer(slot);
+    if(filter==='all'){
+      activateSlide(slot,Number(slot.dataset.activeIndex||0));
+      scheduleSlot(slot,4600+i*520);
+    }
+  });
+}
+filters.forEach(button=>button.addEventListener('click',()=>{
+  filters.forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});
+  showPortfolioFilter(button.dataset.filter);
+}));
+workSlots.forEach((slot,i)=>{
+  slot.addEventListener('mouseenter',()=>clearSlotTimer(slot));
+  slot.addEventListener('mouseleave',()=>{if(activeFilter==='all')scheduleSlot(slot,4600)});
+  slot.addEventListener('focusin',()=>clearSlotTimer(slot));
+  slot.addEventListener('focusout',()=>{if(activeFilter==='all')scheduleSlot(slot,4600)});
+  const active=slot.querySelector('.work-slide.is-active')||slot.querySelector('.work-slide');
+  activateSlide(slot,[...slot.querySelectorAll('.work-slide')].indexOf(active));
+  scheduleSlot(slot,4600+i*520);
+});
 const dialog=document.getElementById('lightbox');
-document.querySelectorAll('[data-image]').forEach(button=>button.addEventListener('click',()=>{const img=document.getElementById('large-image');img.src=button.dataset.image;img.alt=button.querySelector('img').alt;document.getElementById('large-caption').textContent=button.dataset.title;dialog.showModal()}));
+document.querySelectorAll('[data-image]').forEach(button=>button.addEventListener('click',()=>{const img=document.getElementById('large-image');img.src=button.dataset.image;img.alt=button.querySelector('img').alt;document.getElementById('large-caption').textContent=button.dataset.title+(button.dataset.description?' — '+button.dataset.description:'');dialog.showModal()}));
 dialog.querySelector('.close').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
 
 document.getElementById('brief-form').addEventListener('submit',e=>{
@@ -124,7 +180,10 @@ const cdekPvzStatus=document.getElementById('cdek-pvz-status');
 const cdekDeliveryPoint=document.getElementById('cdek-delivery-point');
 let selectedPvzLabel='';
 
-fetch(apiUrl('api/cdek/status'),{headers:{accept:'application/json'}}).then(response=>response.ok?response.json():null).then(data=>{if(data&&data.ready){document.getElementById('cdek-delivery').hidden=false;cdekStatus.textContent='Выберите город получения и укажите параметры упакованного заказа.'}}).catch(()=>{});
+cdekStatus.textContent='Проверяем подключение к API СДЭК…';
+fetch(apiUrl('api/cdek/status'),{headers:{accept:'application/json'}}).then(response=>response.ok?response.json():null).then(data=>{
+  cdekStatus.textContent=data&&data.ready?'Выберите город получения и укажите параметры упакованного заказа.':'Расчёт доставки пока недоступен. Оставьте заявку — уточним условия.';
+}).catch(()=>{cdekStatus.textContent='Не удалось проверить подключение к СДЭК. Оставьте заявку — уточним доставку.'});
 let cdekSearchTimer;
 let cdekSearchController;
 function hideCdekSuggestions(){cdekSuggestions.hidden=true;cdekCity.setAttribute('aria-expanded','false')}
