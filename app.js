@@ -8,12 +8,38 @@ function apiUrl(route,params={}){
   return url.toString();
 }
 
+let selectedDelivery=null;
+
 const filters=document.querySelectorAll('[data-filter]');
 filters.forEach(button=>button.addEventListener('click',()=>{filters.forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});document.querySelectorAll('.work').forEach(w=>{w.hidden=button.dataset.filter!=='all'&&w.dataset.category!==button.dataset.filter})}));
 const dialog=document.getElementById('lightbox');
 document.querySelectorAll('[data-image]').forEach(button=>button.addEventListener('click',()=>{const img=document.getElementById('large-image');img.src=button.dataset.image;img.alt=button.querySelector('img').alt;document.getElementById('large-caption').textContent=button.dataset.title;dialog.showModal()}));
 dialog.querySelector('.close').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
-document.getElementById('brief-form').addEventListener('submit',e=>{e.preventDefault();const f=new FormData(e.target);if(!String(f.get('details')).trim()){document.getElementById('details').setCustomValidity('Опишите вашу идею');document.getElementById('details').reportValidity();return}const text=['Здравствуйте! Хочу обсудить заказ в Voxel 3D.','Изделие: '+f.get('type'),'Количество: '+f.get('qty'),'Цвет: '+(String(f.get('color')).trim()||'подобрать вместе'),'Задача: '+String(f.get('details')).trim(),'Подскажите, пожалуйста, стоимость и срок изготовления.'].join('\n');document.getElementById('brief-text').value=text;document.getElementById('brief-result').hidden=false;document.getElementById('copy-status').textContent='';document.getElementById('brief-text').focus()});
+
+document.getElementById('brief-form').addEventListener('submit',e=>{
+  e.preventDefault();
+  const f=new FormData(e.target);
+  if(!String(f.get('details')).trim()){
+    document.getElementById('details').setCustomValidity('Опишите вашу идею');
+    document.getElementById('details').reportValidity();
+    return;
+  }
+  const lines=[
+    'Здравствуйте! Хочу обсудить заказ в Voxel 3D.',
+    'Изделие: '+f.get('type'),
+    'Количество: '+f.get('qty'),
+    'Цвет: '+(String(f.get('color')).trim()||'подобрать вместе'),
+    'Задача: '+String(f.get('details')).trim()
+  ];
+  if(selectedDelivery){
+    lines.push(`Доставка СДЭК: ${selectedDelivery.city}, ПВЗ ${selectedDelivery.pvz}, тариф «${selectedDelivery.tariff}» (${rubles.format(selectedDelivery.price)} ₽,${selectedDelivery.days})`);
+  }
+  lines.push('Подскажите, пожалуйста, стоимость и срок изготовления.');
+  document.getElementById('brief-text').value=lines.join('\n');
+  document.getElementById('brief-result').hidden=false;
+  document.getElementById('copy-status').textContent='';
+  document.getElementById('brief-text').focus();
+});
 document.getElementById('details').addEventListener('input',e=>e.target.setCustomValidity(''));
 document.getElementById('copy-brief').addEventListener('click',async()=>{const area=document.getElementById('brief-text');try{await navigator.clipboard.writeText(area.value);document.getElementById('copy-status').textContent='Скопировано. Отправьте текст мастеру удобным способом.'}catch{area.focus();area.select();document.getElementById('copy-status').textContent='Выделили текст. Скопируйте его вручную.'}});
 
@@ -74,10 +100,14 @@ calcOrderLink.addEventListener('click',event=>{
   document.getElementById('qty').value=String(quantity);
   const factor=startsFrom?1:Number(calcMaterial.value);
   const unitPrice=Math.round(Number(option.value)*factor);
-  const amount=(startsFrom?'от ':'')+rubles.format(unitPrice*quantity)+' ₽';
+  const itemsTotal=unitPrice*quantity;
+  const amount=(startsFrom?'от ':'')+rubles.format(itemsTotal)+' ₽';
   const materialText=startsFrom?'':`, пластик ${calcMaterial.selectedOptions[0].dataset.material} (коэффициент ×${Number(factor).toFixed(2)})`;
-  const dimensionsText=startsFrom?`, размеры ${dimensions.join(' × ')} см`:'';
-  detailField.value=`Расчёт в калькуляторе: ${option.textContent.split(' — ')[0]}, количество ${quantity}${materialText}${dimensionsText}; ориентир ${amount}. Прошу подтвердить итоговую стоимость.`;
+  const dimensionsText=startsFrom?`, размеры ${dimensions.join(' × ')} см`:''; detailField.value=`Расчёт в калькуляторе: ${option.textContent.split(' — ')[0]}, количество ${quantity}${materialText}${dimensionsText}; ориентир ${amount}. Прошу подтвердить итоговую стоимость.`;
+  const paymentAmountField=document.getElementById('payment-amount');
+  if(paymentAmountField&&!startsFrom){
+    paymentAmountField.value=String(itemsTotal+(selectedDelivery?selectedDelivery.price:0));
+  }
 });
 updatePriceEstimate();
 
@@ -91,78 +121,50 @@ const cdekPvz=document.getElementById('cdek-pvz');
 const cdekPvzList=document.getElementById('cdek-pvz-list');
 const cdekPvzStatus=document.getElementById('cdek-pvz-status');
 const cdekDeliveryPoint=document.getElementById('cdek-delivery-point');
+let selectedPvzLabel='';
+
 fetch(apiUrl('api/cdek/status'),{headers:{accept:'application/json'}}).then(response=>response.ok?response.json():null).then(data=>{if(data?.ready){document.getElementById('cdek-delivery').hidden=false;cdekStatus.textContent='Выберите город получения и укажите параметры упакованного заказа.'}}).catch(()=>{});
 let cdekSearchTimer;
 let cdekSearchController;
 function hideCdekSuggestions(){cdekSuggestions.hidden=true;cdekCity.setAttribute('aria-expanded','false')}
 function showCdekSuggestions(){cdekSuggestions.hidden=false;cdekCity.setAttribute('aria-expanded','true')}
 async function loadCdekPvz(cityCode){
-  cdekPvz.hidden=false;cdekDeliveryPoint.value='';cdekPvzList.replaceChildren();cdekPvzStatus.textContent='Загружаем пункты выдачи…';
+  cdekPvz.hidden=false;cdekDeliveryPoint.value='';selectedPvzLabel='';cdekPvzList.replaceChildren();cdekPvzStatus.textContent='Загружаем пункты выдачи…';
   try{
     const response=await fetch(apiUrl('api/cdek/delivery-points',{city_code:cityCode}),{headers:{accept:'application/json'}});
     const data=await response.json();if(!response.ok)throw new Error(data.error||'Не удалось загрузить ПВЗ.');
     const points=data.deliveryPoints||[];
     if(!points.length){cdekPvzStatus.textContent='В этом городе пункты выдачи не найдены.';return}
-    cdekPvzStatus.textContent=`Выберите пункт выдачи (${points.length}).`;
-    points.forEach((point)=>{
-      const label=document.createElement('label');label.className='cdek-pvz-card';
-      const radio=document.createElement('input');radio.type='radio';radio.name='cdek-pvz-choice';radio.value=point.code;radio.required=true;
-      radio.addEventListener('change',()=>{cdekDeliveryPoint.value=point.code;cdekStatus.textContent='ПВЗ выбран. Теперь можно рассчитать тариф.'});
-      const details=document.createElement('span');details.className='cdek-pvz-details';
-      const name=document.createElement('strong');name.textContent=point.name;
-      const address=document.createElement('span');address.textContent=point.address;
-      const hours=document.createElement('small');hours.textContent=point.workTime;
-      details.append(name,address);if(point.workTime)details.append(hours);label.append(radio,details);cdekPvzList.append(label);
-    });
-  }catch(error){cdekPvzStatus.textContent=error.message||'Сервис СДЭК временно недоступен.'}
+    cdekPvzStatus.textContent=`Выберите пункт выдачи (${points.length}).`; points.forEach((point)=>{ const label=document.createElement('label');label.className='cdek-pvz-card'; const radio=document.createElement('input');radio.type='radio';radio.name='cdek-pvz-choice';radio.value=point.code;radio.required=true; radio.addEventListener('change',()=>{ cdekDeliveryPoint.value=point.code; selectedPvzLabel=`${point.name} (${point.address})`; cdekStatus.textContent='ПВЗ выбран. Теперь можно рассчитать тариф.'; }); const details=document.createElement('span');details.className='cdek-pvz-details'; const name=document.createElement('strong');name.textContent=point.name; const address=document.createElement('span');address.textContent=point.address; const hours=document.createElement('small');hours.textContent=point.workTime; details.append(name,address);if(point.workTime)details.append(hours);label.append(radio,details);cdekPvzList.append(label); }); }catch(error){cdekPvzStatus.textContent=error.message\vert{}\vert{}'Сервис СДЭК временно недоступен.'} } cdekCity.addEventListener('input',()=>{ cdekCityCode.value=''; cdekDeliveryPoint.value='';selectedPvzLabel='';selectedDelivery=null; cdekPvz.hidden=true;cdekPvzList.replaceChildren(); cdekRates.hidden=true; clearTimeout(cdekSearchTimer); if(cdekSearchController)cdekSearchController.abort(); const query=cdekCity.value.trim(); if(query.length<2){hideCdekSuggestions();cdekSuggestions.replaceChildren();return} cdekStatus.textContent='Ищем город в справочнике СДЭК…'; cdekSearchTimer=setTimeout(async()=>{ cdekSearchController=new AbortController(); try{ const response=await fetch(apiUrl('api/cdek/cities',{name:query}),{signal:cdekSearchController.signal,headers:{accept:'application/json'}}); const data=await response.json(); if(!response.ok)throw new Error(data.error\vert{}\vert{}'Не удалось найти город.'); cdekSuggestions.replaceChildren(); (data.cities\vert{}\vert{}[]).forEach(city=>{ const option=document.createElement('button'); option.type='button';option.className='cdek-suggestion';option.setAttribute('role','option');option.textContent=city.name; option.addEventListener('click',()=>{cdekCity.value=city.name;cdekCityCode.value=String(city.code);hideCdekSuggestions();cdekStatus.textContent='Город выбран. Загружаем пункты выдачи…';loadCdekPvz(city.code)}); cdekSuggestions.append(option); }); if(cdekSuggestions.childElementCount){showCdekSuggestions();cdekStatus.textContent='Выберите подходящий город из списка.'} else{hideCdekSuggestions();cdekStatus.textContent='Город не найден. Проверьте написание.'} }catch(error){ if(error.name!=='AbortError'){hideCdekSuggestions();cdekStatus.textContent=error.message\vert{}\vert{}'Сервис СДЭК временно недоступен.'} } },300); }); cdekCity.addEventListener('keydown',event=>{if(event.key==='Escape')hideCdekSuggestions()}); document.addEventListener('click',event=>{if(!event.target.closest('.cdek-city-field'))hideCdekSuggestions()}); function deliveryDays(min,max){ if(!min&&!max)return ''; if(min===max)return `${min} раб. дн.`;
+  return `от ${min\vert{}\vert{}max} до ${max||min} раб. дн.`;
 }
-cdekCity.addEventListener('input',()=>{
-  cdekCityCode.value='';
-  cdekDeliveryPoint.value='';cdekPvz.hidden=true;cdekPvzList.replaceChildren();
-  cdekRates.hidden=true;
-  clearTimeout(cdekSearchTimer);
-  if(cdekSearchController)cdekSearchController.abort();
-  const query=cdekCity.value.trim();
-  if(query.length<2){hideCdekSuggestions();cdekSuggestions.replaceChildren();return}
-  cdekStatus.textContent='Ищем город в справочнике СДЭК…';
-  cdekSearchTimer=setTimeout(async()=>{
-    cdekSearchController=new AbortController();
-    try{
-      const response=await fetch(apiUrl('api/cdek/cities',{name:query}),{signal:cdekSearchController.signal,headers:{accept:'application/json'}});
-      const data=await response.json();
-      if(!response.ok)throw new Error(data.error||'Не удалось найти город.');
-      cdekSuggestions.replaceChildren();
-      (data.cities||[]).forEach(city=>{
-        const option=document.createElement('button');
-        option.type='button';option.className='cdek-suggestion';option.setAttribute('role','option');option.textContent=city.name;
-        option.addEventListener('click',()=>{cdekCity.value=city.name;cdekCityCode.value=String(city.code);hideCdekSuggestions();cdekStatus.textContent='Город выбран. Загружаем пункты выдачи…';loadCdekPvz(city.code)});
-        cdekSuggestions.append(option);
-      });
-      if(cdekSuggestions.childElementCount){showCdekSuggestions();cdekStatus.textContent='Выберите подходящий город из списка.'}
-      else{hideCdekSuggestions();cdekStatus.textContent='Город не найден. Проверьте написание.'}
-    }catch(error){
-      if(error.name!=='AbortError'){hideCdekSuggestions();cdekStatus.textContent=error.message||'Сервис СДЭК временно недоступен.'}
-    }
-  },300);
-});
-cdekCity.addEventListener('keydown',event=>{if(event.key==='Escape')hideCdekSuggestions()});
-document.addEventListener('click',event=>{if(!event.target.closest('.cdek-city-field'))hideCdekSuggestions()});
-function deliveryDays(min,max){
-  if(!min&&!max)return '';
-  if(min===max)return `${min} раб. дн.`;
-  return `от ${min||max} до ${max||min} раб. дн.`;
+function selectTariff(tariff,cardElement){
+  document.querySelectorAll('.cdek-rate-card').forEach(el=>el.style.outline='');
+  cardElement.style.outline='2px solid #d4a359';
+  const days=deliveryDays(tariff.daysMin,tariff.daysMax);
+  selectedDelivery={
+    city:cdekCity.value.trim(),
+    pvz:selectedPvzLabel||cdekDeliveryPoint.value,
+    tariff:tariff.name,
+    price:Number(tariff.price||0),
+    days
+  };
+  cdekStatus.textContent=`Выбран тариф «${tariff.name}» (${rubles.format(selectedDelivery.price)} ₽) — прикрепится к вашей заявке ниже.`;
 }
 function renderCdekRates(tariffs){
   cdekRates.replaceChildren();
   if(!tariffs.length){const empty=document.createElement('p');empty.className='cdek-empty';empty.textContent='Для этого направления тарифы не найдены.';cdekRates.append(empty);cdekRates.hidden=false;return}
-  const heading=document.createElement('h4');heading.textContent='Доступные тарифы';cdekRates.append(heading);
+  const heading=document.createElement('h4');heading.textContent='Доступные тарифы (нажмите на нужный, чтобы добавить в заявку)';cdekRates.append(heading);
   const list=document.createElement('div');list.className='cdek-rate-list';
-  tariffs.forEach(tariff=>{
-    const card=document.createElement('article');card.className='cdek-rate-card';
+  tariffs.forEach((tariff,idx)=>{
+    const card=document.createElement('article');card.className='cdek-rate-card';card.style.cursor='pointer';
     const name=document.createElement('h5');name.textContent=tariff.name;
     const period=document.createElement('p');period.textContent=deliveryDays(tariff.daysMin,tariff.daysMax);
     const price=document.createElement('strong');price.textContent=rubles.format(tariff.price)+' ₽';
-    card.append(name,period,price);list.append(card);
+    card.append(name,period,price);
+    card.addEventListener('click',()=>selectTariff(tariff,card));
+    list.append(card);
+    if(idx===0)selectTariff(tariff,card);
   });
   cdekRates.append(list);cdekRates.hidden=false;
 }
@@ -187,7 +189,7 @@ cdekForm.addEventListener('submit',async event=>{
     const response=await fetch(apiUrl('api/cdek/rates'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)});
     const data=await response.json();
     if(!response.ok)throw new Error(data.error||'Не удалось рассчитать доставку.');
-    renderCdekRates(data.tariffs||[]);cdekStatus.textContent='Расчёт выполнен по тарифам СДЭК.';
+    renderCdekRates(data.tariffs||[]);
   }catch(error){cdekStatus.textContent=error.message||'Сервис СДЭК временно недоступен.'}
   finally{button.disabled=false;button.textContent=originalLabel}
 });
