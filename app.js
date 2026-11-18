@@ -9,6 +9,7 @@ function apiUrl(route,params={}){
 }
 
 let selectedDelivery=null;
+let calculatorApplied=false;
 
 const filters=document.querySelectorAll('[data-filter]');
 const gallery=document.getElementById('works-gallery');
@@ -82,30 +83,108 @@ const dialog=document.getElementById('lightbox');
 document.querySelectorAll('[data-image]').forEach(button=>button.addEventListener('click',()=>{const img=document.getElementById('large-image');img.src=button.dataset.image;img.alt=button.querySelector('.work-main-image').alt;document.getElementById('large-caption').textContent=button.dataset.title+(button.dataset.description?' — '+button.dataset.description:'');dialog.showModal()}));
 dialog.querySelector('.close').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
 
-document.getElementById('brief-form').addEventListener('submit',e=>{
-  e.preventDefault();
-  const f=new FormData(e.target);
-  if(!String(f.get('details')).trim()){
-    document.getElementById('details').setCustomValidity('Опишите вашу идею');
-    document.getElementById('details').reportValidity();
+function isValidOrderContact(value){
+  const contact=String(value||'').trim();
+  if(/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact))return true;
+  if(/^@[A-Za-z0-9_]{5,32}$/.test(contact))return true;
+  const digits=contact.replace(/\D/g,'');
+  return digits.length>=7&&digits.length<=15&&/^\+?[\d\s().-]+$/.test(contact);
+}
+const briefForm=document.getElementById('brief-form');
+const orderContact=document.getElementById('contact');
+const orderStatus=document.getElementById('order-status');
+const orderSubmitButton=briefForm.querySelector('button[type="submit"]');
+briefForm.addEventListener('submit',async event=>{
+  event.preventDefault();
+  const consent=document.getElementById('legal-consent');
+  const detailsField=document.getElementById('details');
+  orderContact.setCustomValidity('');
+  detailsField.setCustomValidity('');
+  if(!detailsField.value.trim()){
+    detailsField.setCustomValidity('Опишите вашу идею');
+  }
+  if(!isValidOrderContact(orderContact.value)){
+    orderContact.setCustomValidity('Укажите телефон, Telegram (@имя) или корректный e-mail.');
+  }
+  if(!consent.checked){
+    orderStatus.textContent='Для отправки заявки примите условия оферты и согласие на обработку персональных данных.';
+    orderStatus.className='form-note order-status is-error';
+    consent.focus();
     return;
   }
+  if(!briefForm.reportValidity())return;
+
+  const formData=new FormData(briefForm);
+  const item=String(formData.get('type')||'').trim();
+  const quantity=Number(formData.get('qty'));
+  const color=String(formData.get('color')||'').trim();
+  const description=String(formData.get('details')||'').trim();
+  const contact=String(formData.get('contact')||'').trim();
+  const estimateText=calcTotal.textContent||'';
+  const estimateValue=Number(estimateText.replace(/[^\d]/g,''));
+  const total=calculatorApplied&&estimateValue>0
+    ? estimateValue+Math.round(Number(selectedDelivery?.price||0))
+    : null;
+  const delivery=selectedDelivery?{
+    method:'СДЭК',
+    city:selectedDelivery.city,
+    pvz:selectedDelivery.pvz,
+    tariff:selectedDelivery.tariff,
+    price:selectedDelivery.price,
+    days:selectedDelivery.days
+  }:null;
+  const payload={item,quantity,color,description,contact,delivery};
+  if(total!==null)payload.total=total;
+
   const lines=[
-    'Здравствуйте! Хочу обсудить заказ в Voxel 3D.',
-    'Изделие: '+f.get('type'),
-    'Количество: '+f.get('qty'),
-    'Цвет: '+(String(f.get('color')).trim()||'подобрать вместе'),
-    'Задача: '+String(f.get('details')).trim()
+    'Здравствуйте! Хочу оформить заказ в Voxel 3D.',
+    'Изделие: '+item,
+    'Количество: '+quantity,
+    'Цвет: '+(color||'подобрать вместе'),
+    'Контакт: '+contact,
+    'Задача: '+description
   ];
   if(selectedDelivery){
     lines.push('Доставка СДЭК: '+selectedDelivery.city+', ПВЗ '+selectedDelivery.pvz+', тариф «'+selectedDelivery.tariff+'» ('+rubles.format(selectedDelivery.price)+' ₽, '+selectedDelivery.days+')');
   }
-  lines.push('Подскажите, пожалуйста, стоимость и срок изготовления.');
-  document.getElementById('brief-text').value=lines.join('\n');
-  document.getElementById('brief-result').hidden=false;
-  document.getElementById('copy-status').textContent='';
-  document.getElementById('brief-text').focus();
+  if(total!==null)lines.push('Ориентировочная итоговая сумма: '+rubles.format(total)+' ₽');
+  lines.push('Подскажите, пожалуйста, срок изготовления.');
+  const manualText=lines.join('\n');
+
+  const originalButtonMarkup=orderSubmitButton.innerHTML;
+  orderSubmitButton.disabled=true;
+  orderSubmitButton.textContent='Отправляем...';
+  orderStatus.textContent='Отправляем заявку в мастерскую…';
+  orderStatus.className='form-note order-status';
+  try{
+    const response=await fetch(apiUrl('api/send-order'),{
+      method:'POST',
+      headers:{'content-type':'application/json','accept':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok||data.ok!==true){
+      throw new Error(data.error||'Сервер не подтвердил отправку заявки. Попробуйте ещё раз.');
+    }
+    orderStatus.textContent='Заявка отправлена! Мы получили её на почту и скоро свяжемся с вами.';
+    orderStatus.className='form-note order-status is-success';
+    document.getElementById('brief-result').hidden=true;
+    document.getElementById('copy-status').textContent='';
+  }catch(error){
+    const message=error instanceof TypeError
+      ? 'Не удалось связаться с мастерской. Скопируйте текст заявки и отправьте его вручную.'
+      : (error.message||'Не удалось отправить заявку. Скопируйте текст и отправьте его вручную.');
+    orderStatus.textContent=message;
+    orderStatus.className='form-note order-status is-error';
+    document.getElementById('brief-text').value=manualText;
+    document.getElementById('brief-result').hidden=false;
+    document.getElementById('copy-status').textContent='Заявку можно отправить вручную по этому тексту.';
+  }finally{
+    orderSubmitButton.disabled=false;
+    orderSubmitButton.innerHTML=originalButtonMarkup;
+  }
 });
+orderContact.addEventListener('input',()=>orderContact.setCustomValidity(''));
 document.getElementById('details').addEventListener('input',e=>e.target.setCustomValidity(''));
 document.getElementById('copy-brief').addEventListener('click',async()=>{const area=document.getElementById('brief-text');try{await navigator.clipboard.writeText(area.value);document.getElementById('copy-status').textContent='Скопировано. Отправьте текст мастеру удобным способом.'}catch{area.focus();area.select();document.getElementById('copy-status').textContent='Выделили текст. Скопируйте его вручную.'}});
 
@@ -152,6 +231,7 @@ calcProduct.addEventListener('change',updatePriceEstimate);
 calcQuantity.addEventListener('input',updatePriceEstimate);
 calcMaterial.addEventListener('change',updatePriceEstimate);
 calcDimensionInputs.forEach(input=>input.addEventListener('input',updatePriceEstimate));
+[calcProduct,calcQuantity,calcMaterial,...calcDimensionInputs,document.getElementById('type'),document.getElementById('qty')].forEach(field=>field.addEventListener(field.tagName==='SELECT'?'change':'input',()=>{calculatorApplied=false}));
 calcOrderLink.addEventListener('click',event=>{
   const count=Number(calcQuantity.value);
   if(!Number.isInteger(count)||count<1){event.preventDefault();calcQuantity.focus();return}
@@ -175,6 +255,7 @@ calcOrderLink.addEventListener('click',event=>{
   if(paymentAmountField&&!startsFrom){
     paymentAmountField.value=String(itemsTotal+(selectedDelivery?selectedDelivery.price:0));
   }
+  calculatorApplied=true;
 });
 updatePriceEstimate();
 
