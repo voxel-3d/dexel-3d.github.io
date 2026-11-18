@@ -280,3 +280,14 @@ header,main,footer{position:relative;z-index:1}
 .review-source{align-self:flex-start;display:inline-flex;align-items:center;gap:4px;padding:6px 9px;border:1px solid rgba(229,169,59,.35);background:rgba(12,12,14,.4);color:var(--muted);font-size:10px;letter-spacing:.4px;cursor:pointer;text-decoration:none;transition:border-color .2s,color .2s,background .2s}.review-source:hover{border-color:var(--accent);color:var(--accent);background:rgba(229,169,59,.1)}
 @media(max-width:1000px){#works .gallery{grid-template-columns:repeat(2,minmax(0,1fr))}.reviews-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){#works .gallery,.reviews-grid{grid-template-columns:1fr}.reviews-heading{align-items:flex-start!important;flex-direction:column}.reviews-actions{width:100%}.reviews-link{flex:1;text-align:center;justify-content:center}.review-card{padding:18px}}
+
+
+/* Use each slide photo as a soft fill behind the uncropped foreground. */
+#works .work .image-button{position:relative}
+#works .work .image-button>img.work-bg-blur{position:absolute;inset:-12px;width:calc(100% + 24px);height:calc(100% + 24px);object-fit:cover;filter:blur(18px) brightness(.45);z-index:0;pointer-events:none;transform:none}
+#works .work .image-button>img.work-main-image{position:relative;inset:auto;z-index:1;width:100%;height:100%;object-fit:contain;object-position:center}
+#works .work .image-button>.image-tag,#works .work .image-button>.zoom{z-index:2}
+#works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .work-caption,
+#works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .image-tag,
+#works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .zoom{visibility:hidden}
+#works .work .image-button:hover>img.work-bg-blur{transform:none}
