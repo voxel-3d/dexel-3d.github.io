@@ -14,12 +14,22 @@ const filters=document.querySelectorAll('[data-filter]');
 const gallery=document.getElementById('works-gallery');
 const workSlots=[...gallery.querySelectorAll('.work-slot')];
 const workItems=[...gallery.querySelectorAll('.work-slide')];
+const works=workItems.map(slide=>{
+  const position=slide.dataset.position||'center center';
+  const image=slide.querySelector('.work-main-image');
+  if(image)image.style.objectPosition=position;
+  return {slide,position};
+});
 let activeFilter='all';
 const slotTimers=new WeakMap();
 
 function activateSlide(slot,index){
   const slides=[...slot.querySelectorAll('.work-slide')];
   const next=index%slides.length;
+  const activeSlide=slides[next];
+  const work=works.find(entry=>entry.slide===activeSlide);
+  const image=activeSlide?.querySelector('.work-main-image');
+  if(image)image.style.objectPosition=work?.position||'center center';
   slot.dataset.activeIndex=String(next);
   slides.forEach((slide,i)=>{
     const active=i===next;
