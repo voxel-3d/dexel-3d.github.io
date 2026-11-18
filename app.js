@@ -348,7 +348,7 @@ if(new URLSearchParams(window.location.search).get('payment')==='return'&&paymen
   let particles=[];
   let width=0,height=0,dpr=1,frameId=0,lastFrame=0,resizeTimer=0;
   let reduced=motionQuery.matches;
-  let count=window.innerWidth<768?28:52;
+  let count=window.innerWidth<768?13:24;
 
   const random=(min,max)=>min+Math.random()*(max-min);
   function makeParticle(fromBottom=false){
@@ -372,7 +372,7 @@ if(new URLSearchParams(window.location.search).get('payment')==='return'&&paymen
     canvas.width=Math.round(width*dpr);
     canvas.height=Math.round(height*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    count=width<768?28:52;
+    count=width<768?13:24;
     particles=Array.from({length:count},()=>makeParticle());
     ctx.clearRect(0,0,width,height);
   }
