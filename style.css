@@ -288,3 +288,9 @@ header,main,footer{position:relative;z-index:1}
 #works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .work-caption,
 #works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .image-tag,
 #works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .zoom{visibility:hidden}
+
+#brief-form .order-status:empty{display:none}
+#brief-form .order-status{margin:14px 0 0!important;padding:12px 14px;border-left:2px solid transparent;background:rgba(12,12,14,.55);font-size:13px!important;line-height:1.6}
+#brief-form .order-status.is-success{border-left-color:#54b779;color:#95e0ad;background:rgba(35,105,57,.18)}
+#brief-form .order-status.is-error{border-left-color:#d97855;color:#f1b29c;background:rgba(132,55,35,.15)}
+#brief-form button[type="submit"]:disabled{opacity:.7;cursor:wait}
