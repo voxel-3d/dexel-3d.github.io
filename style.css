@@ -180,10 +180,6 @@ select option:checked{color:#171916;background-color:#d59a3a}
 @media(max-width:1000px){.cdek-panel{grid-template-columns:1fr;gap:20px;padding:26px}.cdek-rate-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){.cdek-panel{margin:38px 0;padding:20px}.cdek-package-fields{grid-template-columns:repeat(2,minmax(0,1fr))}.cdek-form .cdek-submit{width:100%}.cdek-rate-list{grid-template-columns:1fr}}
 
-/* Slow, diffused smoke layer above the backdrop and below every interactive section. */
-@keyframes smoke-drift{0%{transform:translate3d(-2%,2%,0) scale(.96);opacity:.2}50%{transform:translate3d(1%,-1%,0) scale(1.04);opacity:.34}100%{transform:translate3d(2%,-2%,0) scale(1.08);opacity:.24}}
-body::after{content:"";position:fixed;inset:-16%;z-index:0;pointer-events:none;filter:blur(58px);background:radial-gradient(ellipse 27% 20% at 14% 80%,rgba(211,216,210,.42),transparent 78%),radial-gradient(ellipse 32% 22% at 36% 62%,rgba(199,207,204,.34),transparent 80%),radial-gradient(ellipse 24% 19% at 66% 80%,rgba(224,215,197,.3),transparent 82%),radial-gradient(ellipse 34% 23% at 86% 56%,rgba(194,207,208,.36),transparent 78%);animation:smoke-drift 46s ease-in-out infinite alternate;will-change:transform,opacity}
-body>*{position:relative;z-index:1}
 .header .header-legal-link{color:#c3c4bb;font-size:12px;white-space:nowrap;text-decoration:underline;text-decoration-color:rgba(213,154,58,.5);text-underline-offset:4px}
 .header .header-legal-link:hover{color:var(--accent)}
 .calc-dimensions{grid-column:1/-1}
@@ -193,7 +189,7 @@ body>*{position:relative;z-index:1}
 .calc-dimension-fields input{margin:8px 0 0;min-height:48px}
 .calculator-form [hidden]{display:none!important}
 @media(max-width:700px){.header{height:auto;min-height:76px;flex-wrap:wrap;row-gap:0}.header nav{display:flex;flex-basis:100%;justify-content:center;flex-wrap:wrap;gap:10px 20px;padding:0 0 12px;font-size:11px}.header nav>a:not(.header-legal-link){display:none}.header .header-legal-link{font-size:11px}.calc-dimension-fields{gap:8px}.calc-dimension-fields input{padding:12px 8px;font-size:11px}}
-@media(prefers-reduced-motion:reduce){body::after{animation:none;will-change:auto;opacity:.24}}
+
 .prepay-box{border:1px solid var(--line);padding:18px;margin:20px 0 22px;min-width:0}
 .prepay-box legend{padding:0 8px;color:var(--paper);font-size:14px;font-weight:700}
 .prepay-box>p{font-size:12px;line-height:1.6;color:var(--muted);margin:0 0 14px}
@@ -240,3 +236,16 @@ body>*{position:relative;z-index:1}
 #cdek-delivery.cdek-panel[hidden]{display:none}
 @media(max-width:1000px){#works .gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){#works .gallery{grid-template-columns:1fr;gap:24px}.work .image-button{aspect-ratio:4/3}.hero-actions{align-items:stretch}.hero-actions .button{flex:1 1 100%}.hero-ozon-link{margin-top:14px}.header nav>a:not(.header-legal-link){display:inline-flex}}
+
+/* Fill every portfolio thumbnail edge to edge, including personalized pieces. */
+#works .work .image-button{display:block;position:relative;width:100%;height:auto;aspect-ratio:4/3;padding:0;border:0;overflow:hidden;background:transparent}
+#works .work .image-button>img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;object-position:center}
+
+/* Subtle ambient layer behind all site content. */
+#ambient-bg{position:fixed;inset:0;pointer-events:none;z-index:0;overflow:hidden}
+.ambient-smoke{position:absolute;inset:-8%;opacity:.1;background:radial-gradient(ellipse 34% 24% at 14% 88%,rgba(188,111,34,.22),transparent 100%),radial-gradient(ellipse 28% 22% at 78% 65%,rgba(93,61,36,.24),transparent 100%),radial-gradient(ellipse 35% 28% at 56% 34%,rgba(208,144,52,.16),transparent 100%);animation:ambient-smoke-drift 30s ease-in-out infinite alternate;will-change:transform}
+@keyframes ambient-smoke-drift{0%{transform:translate3d(-1.5%,1%,0) scale(1)}50%{transform:translate3d(1%,0,0) scale(1.025)}100%{transform:translate3d(1.5%,-1%,0) scale(1.04)}}
+#sparks-canvas{position:absolute;inset:0;display:block;width:100%;height:100%}
+header,main,footer{position:relative;z-index:1}
+.skip:focus{position:fixed;z-index:2}
+@media(prefers-reduced-motion:reduce){.ambient-smoke{animation:none;will-change:auto}#sparks-canvas{visibility:hidden}}
