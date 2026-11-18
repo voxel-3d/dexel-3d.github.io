@@ -216,3 +216,27 @@ body>*{position:relative;z-index:1}
 .packing-card figcaption strong{font-size:15px;color:var(--paper)}
 .packing-card figcaption span{font-size:13px;line-height:1.6;color:var(--muted)}
 @media(max-width:700px){.packing-proof{margin-top:44px;padding:18px}.packing-heading{display:grid;gap:12px}.packing-gallery{grid-template-columns:1fr;gap:22px}}
+
+/* Compact portfolio slots with crossfading real work. */
+.hero-actions{gap:14px;flex-wrap:wrap}
+.hero-actions .button-outline{color:var(--paper);background:transparent;border:1px solid #686b5b}
+.hero-actions .button-outline:hover{background:#292c25;border-color:var(--accent);color:var(--paper)}
+.hero-ozon-link{display:inline-block;margin-top:15px;font-size:13px;color:var(--muted);text-decoration:underline;text-decoration-color:rgba(213,154,58,.55);text-underline-offset:4px}
+.hero-ozon-link:hover{color:var(--accent)}
+#works .gallery{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:30px 22px}
+.work-slot{display:grid;grid-template-columns:minmax(0,1fr);align-content:start;min-width:0}
+.work-slot>.work{grid-area:1/1;align-self:start;opacity:0;pointer-events:none;transition:opacity .9s ease-in-out}
+.work-slot>.work.is-active{opacity:1;pointer-events:auto}
+.work .image-button{height:auto;aspect-ratio:4/3;width:100%}
+.work .image-button img{width:100%;height:100%;object-fit:cover}
+#works .work-caption{padding-top:12px}
+#works .work-caption h3{font-size:15px;margin-bottom:5px}
+#works .work-caption p{font-size:11px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--muted)}
+#works .gallery.is-filtered .work-slot{display:contents}
+#works .gallery.is-filtered .work-slot>.work{grid-area:auto;opacity:1;pointer-events:auto;transition:none}
+#works .work[hidden]{display:none}
+.process-cta{margin-top:36px}
+#cdek-delivery.cdek-panel{display:grid}
+#cdek-delivery.cdek-panel[hidden]{display:none}
+@media(max-width:1000px){#works .gallery{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:700px){#works .gallery{grid-template-columns:1fr;gap:24px}.work .image-button{aspect-ratio:4/3}.hero-actions{align-items:stretch}.hero-actions .button{flex:1 1 100%}.hero-ozon-link{margin-top:14px}.header nav>a:not(.header-legal-link){display:inline-flex}}
