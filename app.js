@@ -1,3 +1,13 @@
+const API_BASE_URL='https://functions.yandexcloud.net/d4evt0q80matet5dunuk';
+function apiUrl(route,params={}){
+  const url=new URL(API_BASE_URL);
+  url.searchParams.set('route',route);
+  Object.entries(params).forEach(([key,value])=>{
+    if(value!==undefined&&value!==null&&value!=='')url.searchParams.set(key,String(value));
+  });
+  return url.toString();
+}
+
 const filters=document.querySelectorAll('[data-filter]');
 filters.forEach(button=>button.addEventListener('click',()=>{filters.forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});document.querySelectorAll('.work').forEach(w=>{w.hidden=button.dataset.filter!=='all'&&w.dataset.category!==button.dataset.filter})}));
 const dialog=document.getElementById('lightbox');
@@ -81,7 +91,7 @@ const cdekPvz=document.getElementById('cdek-pvz');
 const cdekPvzList=document.getElementById('cdek-pvz-list');
 const cdekPvzStatus=document.getElementById('cdek-pvz-status');
 const cdekDeliveryPoint=document.getElementById('cdek-delivery-point');
-fetch('/api/cdek/status',{headers:{accept:'application/json'}}).then(response=>response.ok?response.json():null).then(data=>{if(data?.ready){document.getElementById('cdek-delivery').hidden=false;cdekStatus.textContent='Выберите город получения и укажите параметры упакованного заказа.'}}).catch(()=>{});
+fetch(apiUrl('api/cdek/status'),{headers:{accept:'application/json'}}).then(response=>response.ok?response.json():null).then(data=>{if(data?.ready){document.getElementById('cdek-delivery').hidden=false;cdekStatus.textContent='Выберите город получения и укажите параметры упакованного заказа.'}}).catch(()=>{});
 let cdekSearchTimer;
 let cdekSearchController;
 function hideCdekSuggestions(){cdekSuggestions.hidden=true;cdekCity.setAttribute('aria-expanded','false')}
@@ -89,12 +99,12 @@ function showCdekSuggestions(){cdekSuggestions.hidden=false;cdekCity.setAttribut
 async function loadCdekPvz(cityCode){
   cdekPvz.hidden=false;cdekDeliveryPoint.value='';cdekPvzList.replaceChildren();cdekPvzStatus.textContent='Загружаем пункты выдачи…';
   try{
-    const response=await fetch('/api/cdek/delivery-points?city_code='+encodeURIComponent(cityCode),{headers:{accept:'application/json'}});
+    const response=await fetch(apiUrl('api/cdek/delivery-points',{city_code:cityCode}),{headers:{accept:'application/json'}});
     const data=await response.json();if(!response.ok)throw new Error(data.error||'Не удалось загрузить ПВЗ.');
     const points=data.deliveryPoints||[];
     if(!points.length){cdekPvzStatus.textContent='В этом городе пункты выдачи не найдены.';return}
     cdekPvzStatus.textContent=`Выберите пункт выдачи (${points.length}).`;
-    points.forEach((point,index)=>{
+    points.forEach((point)=>{
       const label=document.createElement('label');label.className='cdek-pvz-card';
       const radio=document.createElement('input');radio.type='radio';radio.name='cdek-pvz-choice';radio.value=point.code;radio.required=true;
       radio.addEventListener('change',()=>{cdekDeliveryPoint.value=point.code;cdekStatus.textContent='ПВЗ выбран. Теперь можно рассчитать тариф.'});
@@ -118,7 +128,7 @@ cdekCity.addEventListener('input',()=>{
   cdekSearchTimer=setTimeout(async()=>{
     cdekSearchController=new AbortController();
     try{
-      const response=await fetch('/api/cdek/cities?name='+encodeURIComponent(query),{signal:cdekSearchController.signal,headers:{accept:'application/json'}});
+      const response=await fetch(apiUrl('api/cdek/cities',{name:query}),{signal:cdekSearchController.signal,headers:{accept:'application/json'}});
       const data=await response.json();
       if(!response.ok)throw new Error(data.error||'Не удалось найти город.');
       cdekSuggestions.replaceChildren();
@@ -174,7 +184,7 @@ cdekForm.addEventListener('submit',async event=>{
   const payload={city_code:Number(cdekCityCode.value),weight_g:weight,delivery_point:cdekDeliveryPoint.value};
   if(hasDimensions){payload.length_cm=Number(dimensions[0]);payload.width_cm=Number(dimensions[1]);payload.height_cm=Number(dimensions[2])}
   try{
-    const response=await fetch('/api/cdek/rates',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)});
+    const response=await fetch(apiUrl('api/cdek/rates'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)});
     const data=await response.json();
     if(!response.ok)throw new Error(data.error||'Не удалось рассчитать доставку.');
     renderCdekRates(data.tariffs||[]);cdekStatus.textContent='Расчёт выполнен по тарифам СДЭК.';
@@ -201,7 +211,7 @@ if(paymentButton){
     const returnUrl=new URL('/?payment=return',window.location.origin).toString();
     const description=(document.getElementById('type').value+' — '+document.getElementById('details').value.trim()).slice(0,128);
     try{
-      const response=await fetch('/api/create-payment',{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({amount_rub:amount,customer_email:email,description,return_url:returnUrl,legal_consent:consent.checked})});
+      const response=await fetch(apiUrl('api/create-payment'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({amount_rub:amount,customer_email:email,description,return_url:returnUrl,legal_consent:consent.checked})});
       const data=await response.json();
       if(!response.ok)throw new Error(data.error||'Не удалось создать платёж.');
       if(typeof data.confirmation_url!=='string'||!data.confirmation_url.startsWith('https://'))throw new Error('ЮKassa не вернула ссылку для оплаты.');
