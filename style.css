@@ -277,6 +277,6 @@ header,main,footer{position:relative;z-index:1}
 .review-stars{color:var(--accent);font-size:15px;letter-spacing:2px;line-height:1}
 .review-product{font-size:12px;line-height:1.5;color:#d1cdbf;margin:0}
 .review-card blockquote{margin:0;color:var(--paper);font-size:14px;line-height:1.7;flex:1}
-.review-source{align-self:flex-start;padding:6px 9px;border:1px solid rgba(229,169,59,.25);color:var(--muted);font-size:10px;letter-spacing:.4px}
+.review-source{align-self:flex-start;display:inline-flex;align-items:center;gap:4px;padding:6px 9px;border:1px solid rgba(229,169,59,.35);background:rgba(12,12,14,.4);color:var(--muted);font-size:10px;letter-spacing:.4px;cursor:pointer;text-decoration:none;transition:border-color .2s,color .2s,background .2s}.review-source:hover{border-color:var(--accent);color:var(--accent);background:rgba(229,169,59,.1)}
 @media(max-width:1000px){#works .gallery{grid-template-columns:repeat(2,minmax(0,1fr))}.reviews-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:700px){#works .gallery,.reviews-grid{grid-template-columns:1fr}.reviews-heading{align-items:flex-start!important;flex-direction:column}.reviews-actions{width:100%}.reviews-link{flex:1;text-align:center;justify-content:center}.review-card{padding:18px}}
