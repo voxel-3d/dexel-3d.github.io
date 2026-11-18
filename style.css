@@ -205,7 +205,7 @@ select option:checked{color:#171916;background-color:#d59a3a}
 .packing-heading>p{max-width:400px;font-size:14px;line-height:1.7;color:var(--muted);margin:0}
 .packing-gallery{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;margin-top:24px}
 .packing-card{margin:0;min-width:0}
-.packing-image{display:block;position:relative;width:100%;aspect-ratio:4/3;padding:0;overflow:hidden;border:1px solid var(--line);background:var(--panel);cursor:zoom-in}
+.packing-image{display:block;position:relative;width:100%;aspect-ratio:1/1;padding:0;overflow:hidden;border:1px solid var(--line);background:var(--panel);cursor:zoom-in}
 .packing-image img{display:block;width:100%;height:100%;object-fit:cover;transition:transform .5s}
 .packing-image:hover img{transform:scale(1.03)}
 .packing-card figcaption{display:grid;gap:6px;padding-top:14px}
@@ -257,9 +257,9 @@ header,main,footer{position:relative;z-index:1}
 #works .work-slot{align-content:stretch}
 #works .work-slot>.work{align-self:stretch}
 #works .work .image-button,
-#process .packing-image{display:flex;align-items:center;justify-content:center;aspect-ratio:4/3;width:100%;height:auto;padding:0;border:0;overflow:hidden;background:rgba(12,12,14,.85)}
-#works .work .image-button>img,
-#process .packing-image>img{position:static;inset:auto;display:block;width:100%;height:100%;object-fit:contain;object-position:center}
+#process .packing-image{display:flex;align-items:center;justify-content:center;aspect-ratio:1/1;width:100%;height:auto;padding:0;border:0;overflow:hidden;background:rgba(12,12,14,.85)}
+#works .work .image-button>img.work-main-image,
+#process .packing-image>img{position:relative;inset:auto;z-index:1;display:block;width:100%;height:100%;object-fit:cover;object-position:center center}
 #works .work-caption h3{font-size:13px;line-height:1.45;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
 #works .work-caption p{display:none}
 
@@ -282,12 +282,9 @@ header,main,footer{position:relative;z-index:1}
 @media(max-width:700px){#works .gallery,.reviews-grid{grid-template-columns:1fr}.reviews-heading{align-items:flex-start!important;flex-direction:column}.reviews-actions{width:100%}.reviews-link{flex:1;text-align:center;justify-content:center}.review-card{padding:18px}}
 
 
-/* Use each slide photo as a soft fill behind the uncropped foreground. */
+/* Keep slide text clear while its outgoing image fades away. */
 #works .work .image-button{position:relative}
-#works .work .image-button>img.work-bg-blur{position:absolute;inset:-12px;width:calc(100% + 24px);height:calc(100% + 24px);object-fit:cover;filter:blur(18px) brightness(.45);z-index:0;pointer-events:none;transform:none}
-#works .work .image-button>img.work-main-image{position:relative;inset:auto;z-index:1;width:100%;height:100%;object-fit:contain;object-position:center}
 #works .work .image-button>.image-tag,#works .work .image-button>.zoom{z-index:2}
 #works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .work-caption,
 #works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .image-tag,
 #works .gallery:not(.is-filtered) .work-slot>.work:not(.is-active) .zoom{visibility:hidden}
-#works .work .image-button:hover>img.work-bg-blur{transform:none}
