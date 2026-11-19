@@ -10,6 +10,8 @@ function apiUrl(route,params={}){
 
 let selectedDelivery=null;
 let calculatorApplied=false;
+let calculatedItemsTotal=null;
+let paymentMode=50;
 
 const filters=document.querySelectorAll('[data-filter]');
 const gallery=document.getElementById('works-gallery');
@@ -231,7 +233,7 @@ calcProduct.addEventListener('change',updatePriceEstimate);
 calcQuantity.addEventListener('input',updatePriceEstimate);
 calcMaterial.addEventListener('change',updatePriceEstimate);
 calcDimensionInputs.forEach(input=>input.addEventListener('input',updatePriceEstimate));
-[calcProduct,calcQuantity,calcMaterial,...calcDimensionInputs,document.getElementById('type'),document.getElementById('qty')].forEach(field=>field.addEventListener(field.tagName==='SELECT'?'change':'input',()=>{calculatorApplied=false}));
+[calcProduct,calcQuantity,calcMaterial,...calcDimensionInputs,document.getElementById('type'),document.getElementById('qty')].forEach(field=>field.addEventListener(field.tagName==='SELECT'?'change':'input',()=>clearCalculatedOrderTotal()));
 calcOrderLink.addEventListener('click',event=>{
   const count=Number(calcQuantity.value);
   if(!Number.isInteger(count)||count<1){event.preventDefault();calcQuantity.focus();return}
@@ -251,11 +253,16 @@ calcOrderLink.addEventListener('click',event=>{
   const materialText=startsFrom?'':', пластик '+calcMaterial.selectedOptions[0].dataset.material+' (коэффициент ×'+Number(factor).toFixed(2)+')';
   const dimensionsText=startsFrom?', размеры '+dimensions.join(' × ')+' см':'';
   detailField.value='Расчёт в калькуляторе: '+option.textContent.split(' — ')[0]+', количество '+quantity+materialText+dimensionsText+'; ориентир '+amount+'. Прошу подтвердить итоговую стоимость.';
-  const paymentAmountField=document.getElementById('payment-amount');
-  if(paymentAmountField&&!startsFrom){
-    paymentAmountField.value=String(itemsTotal+(selectedDelivery?selectedDelivery.price:0));
-  }
   calculatorApplied=true;
+  calculatedItemsTotal=startsFrom?null:itemsTotal;
+  const paymentAmountField=document.getElementById('payment-amount');
+  if(paymentAmountField){
+    paymentAmountField.readOnly=!startsFrom;
+    paymentAmountField.value=startsFrom?'':String(itemsTotal+(selectedDelivery?selectedDelivery.price:0));
+    const hint=document.getElementById('payment-base-hint');
+    if(hint)hint.textContent=startsFrom?'Калькулятор показывает цену «от». Введите согласованную с мастером полную стоимость заказа.':'Полная стоимость подставлена из калькулятора и включает выбранную доставку СДЭК.';
+    syncPaymentSummary();
+  }
 });
 updatePriceEstimate();
 
@@ -306,6 +313,7 @@ async function loadCdekPvz(cityCode){
 cdekCity.addEventListener('input',()=>{
   cdekCityCode.value='';
   cdekDeliveryPoint.value='';selectedPvzLabel='';selectedDelivery=null;
+  refreshCalculatedPaymentTotal();
   cdekPvz.hidden=true;cdekPvzList.replaceChildren();
   cdekRates.hidden=true;
   clearTimeout(cdekSearchTimer);
@@ -351,6 +359,7 @@ function selectTariff(tariff,cardElement){
     price:Number(tariff.price||0),
     days:days
   };
+  refreshCalculatedPaymentTotal();
   cdekStatus.textContent='Выбран тариф «'+tariff.name+'» ('+rubles.format(selectedDelivery.price)+' ₽) — прикрепится к вашей заявке ниже.';
 }
 function renderCdekRates(tariffs){
@@ -403,6 +412,10 @@ const paymentEmail=document.getElementById('payment-email');
 const yookassaDialog=document.getElementById('yookassa-dialog');
 const yookassaPayForm=document.getElementById('yookassa-pay-form');
 const yookassaAmount=document.getElementById('yk-sum-input');
+const paymentAmountField=document.getElementById('payment-amount');
+const paymentModeSummary=document.getElementById('payment-mode-summary');
+const yookassaOrderTotal=document.getElementById('yk-order-total');
+const yookassaAmountSummary=document.getElementById('yk-amount-summary');
 const yookassaOrderSummary=document.getElementById('yk-order-summary');
 const yookassaFormStatus=document.getElementById('yookassa-form-status');
 const yookassaSubmitButton=document.getElementById('yk-payment-submit');
@@ -422,8 +435,10 @@ function paymentDeliveryDetails(){
     days:selectedDelivery.days||''
   }:{method:'не выбран'};
 }
-function paymentDescription(orderId,contact,item,quantity){
-  return ('Заказ #'+orderId+' | Контакт: '+contact+' | '+item+' × '+quantity).slice(0,128);
+function paymentDescription(orderId,contact,item,quantity,amount,total,mode){
+  const modeLabel=mode===50?'Оплата 50%':'Оплата 100%';
+  const ratio=' ('+amount+'/'+total+' ₽)';
+  return ('Заказ #'+orderId+' | '+modeLabel+ratio+' | Контакт: '+contact+' | '+item+' × '+quantity).slice(0,128);
 }
 function validatePaymentContact(){
   const validContact=isValidOrderContact(orderContact.value);
@@ -446,24 +461,89 @@ function validatePaymentContact(){
 }));
 document.getElementById('payment-amount').addEventListener('input',event=>event.target.classList.remove('payment-field-invalid'));
 yookassaAmount.addEventListener('input',()=>yookassaAmount.classList.remove('payment-field-invalid'));
+function selectedPaymentMode(){
+  const selected=document.querySelector('input[name="payment-mode-main"]:checked');
+  return selected?Number(selected.value):paymentMode;
+}
+function currentOrderTotal(){
+  const total=Number(paymentAmountField.value);
+  return Number.isFinite(total)&&total>=1&&total<=300000?Math.round(total):null;
+}
+function paymentAmountFor(total,mode){
+  return mode===50?Math.round(total*0.5):total;
+}
+function paymentModeText(total,mode,amount){
+  return mode===50
+    ? 'К оплате: '+rubles.format(amount)+' ₽ (Предоплата 50% от '+rubles.format(total)+' ₽)'
+    : 'К оплате: '+rubles.format(amount)+' ₽ (Полная оплата 100%)';
+}
+function syncPaymentSummary(){
+  paymentMode=selectedPaymentMode();
+  const total=currentOrderTotal();
+  const amount=total===null?null:paymentAmountFor(total,paymentMode);
+  if(paymentModeSummary)paymentModeSummary.textContent=total===null
+    ? 'Укажите полную согласованную стоимость заказа, чтобы рассчитать сумму к оплате.'
+    : paymentModeText(total,paymentMode,amount);
+  if(yookassaOrderTotal)yookassaOrderTotal.textContent=total===null
+    ? 'Полная стоимость заказа не указана.'
+    : 'Полная стоимость заказа: '+rubles.format(total)+' ₽';
+  if(yookassaAmount)yookassaAmount.value=amount===null?'':String(amount);
+  if(yookassaAmountSummary)yookassaAmountSummary.textContent=total===null
+    ? 'Сумма появится после ввода полной стоимости заказа.'
+    : paymentModeText(total,paymentMode,amount);
+}
+function clearCalculatedOrderTotal(){
+  calculatorApplied=false;
+  calculatedItemsTotal=null;
+  paymentAmountField.readOnly=false;
+  paymentAmountField.value='';
+  const hint=document.getElementById('payment-base-hint');
+  if(hint)hint.textContent='Введите согласованную стоимость заказа вручную или примените точный расчёт в калькуляторе.';
+  syncPaymentSummary();
+}
+function refreshCalculatedPaymentTotal(){
+  if(calculatorApplied&&calculatedItemsTotal!==null){
+    paymentAmountField.value=String(calculatedItemsTotal+(selectedDelivery?selectedDelivery.price:0));
+    syncPaymentSummary();
+  }
+}
+document.querySelectorAll('input[name="payment-mode-main"],input[name="payment-mode-dialog"]').forEach(radio=>{
+  radio.addEventListener('change',()=>{
+    if(!radio.checked)return;
+    paymentMode=Number(radio.value);
+    document.querySelectorAll('input[name="payment-mode-main"],input[name="payment-mode-dialog"]').forEach(peer=>{
+      peer.checked=Number(peer.value)===paymentMode;
+    });
+    syncPaymentSummary();
+  });
+});
+paymentAmountField.addEventListener('input',()=>{
+  calculatorApplied=false;
+  calculatedItemsTotal=null;
+  paymentAmountField.readOnly=false;
+  paymentAmountField.classList.remove('payment-field-invalid');
+  syncPaymentSummary();
+});
 function syncYookassaAmount(){
-  const amount=Number(document.getElementById('payment-amount').value);
-  if(!Number.isFinite(amount)||amount<1||amount>300000)return false;
-  yookassaAmount.value=String(amount);
+  const total=currentOrderTotal();
+  if(total===null)return false;
+  yookassaAmount.value=String(paymentAmountFor(total,paymentMode));
   return true;
 }
+syncPaymentSummary();
 if(paymentButton&&yookassaDialog&&yookassaPayForm){
   paymentButton.addEventListener('click',()=>{
     paymentStatus.textContent='';
     if(!validatePaymentContact())return;
-    const amountField=document.getElementById('payment-amount');
-    const amount=Number(amountField.value);
-    if(!Number.isFinite(amount)||amount<1||amount>300000){
-      paymentStatus.textContent='Укажите сумму от 1 до 300 000 ₽.';
+    const amountField=paymentAmountField;
+    const total=currentOrderTotal();
+    if(total===null){
+      paymentStatus.textContent='Укажите полную согласованную стоимость заказа от 1 до 300 000 ₽.';
       amountField.classList.add('payment-field-invalid');
       amountField.focus();
       return;
     }
+    paymentMode=selectedPaymentMode();
     if(!document.getElementById('legal-consent').checked){
       paymentStatus.textContent='Для оплаты примите условия оферты и согласие на обработку персональных данных.';
       document.getElementById('legal-consent').focus();
@@ -471,6 +551,8 @@ if(paymentButton&&yookassaDialog&&yookassaPayForm){
     }
     yookassaOrderReference=makeYookassaOrderReference();
     syncYookassaAmount();
+    document.querySelectorAll('input[name="payment-mode-dialog"]').forEach(radio=>{radio.checked=Number(radio.value)===paymentMode});
+    syncPaymentSummary();
     yookassaOrderSummary.textContent='Заказ #'+yookassaOrderReference+' · '+document.getElementById('type').value+' × '+document.getElementById('qty').value;
     yookassaFormStatus.textContent='';
     yookassaDialog.showModal();
@@ -481,11 +563,14 @@ if(paymentButton&&yookassaDialog&&yookassaPayForm){
       yookassaDialog.close();
       return;
     }
-    const amount=Number(yookassaAmount.value);
+    paymentMode=Number(document.querySelector('input[name="payment-mode-dialog"]:checked')?.value||paymentMode);
+    const total=currentOrderTotal();
+    const amount=total===null?NaN:paymentAmountFor(total,paymentMode);
     if(!Number.isFinite(amount)||amount<1||amount>300000){
-      yookassaFormStatus.textContent='Укажите сумму от 1 до 300 000 ₽.';
-      yookassaAmount.classList.add('payment-field-invalid');
-      yookassaAmount.focus();
+      yookassaFormStatus.textContent='Укажите полную согласованную стоимость заказа от 1 до 300 000 ₽.';
+      paymentAmountField.classList.add('payment-field-invalid');
+      yookassaDialog.close();
+      paymentAmountField.focus();
       return;
     }
     if(!document.getElementById('legal-consent').checked){
@@ -501,7 +586,8 @@ if(paymentButton&&yookassaDialog&&yookassaPayForm){
     const taskDescription=document.getElementById('details').value.trim();
     const delivery=paymentDeliveryDetails();
     const orderId=yookassaOrderReference||makeYookassaOrderReference();
-    const description=paymentDescription(orderId,contact,item,quantity);
+    const description=paymentDescription(orderId,contact,item,quantity,amount,total,paymentMode);
+    const paymentLabel=paymentMode===50?'Оплата 50%':'Оплата 100%';
     const metadata={
       order_id:orderId,
       contact,
@@ -510,19 +596,25 @@ if(paymentButton&&yookassaDialog&&yookassaPayForm){
       quantity:String(quantity),
       color,
       delivery:JSON.stringify(delivery),
-      description:taskDescription
+      description:taskDescription,
+      payment_mode:paymentMode,
+      payment_amount:String(amount),
+      total:String(total)
     };
+    const noticeDescription=(description+' | '+taskDescription).slice(0,1000);
     const orderNotice={
       order_id:orderId,
       item,
       quantity,
       color,
-      description:'Заказ #'+orderId+' | '+taskDescription,
+      description:noticeDescription,
       contact,
       email,
       customer_email:email,
       delivery,
-      total:amount
+      payment_mode:paymentMode,
+      payment_amount:amount,
+      total
     };
     yookassaSubmitButton.disabled=true;
     yookassaFormStatus.textContent='Отправляем карточку заказа и создаём платёж…';
