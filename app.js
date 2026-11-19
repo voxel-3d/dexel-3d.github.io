@@ -399,29 +399,83 @@ cdekForm.addEventListener('submit',async event=>{
 const paymentButton=document.getElementById('create-payment');
 const paymentStatus=document.getElementById('payment-status');
 const paymentForm=document.getElementById('brief-form');
-if(paymentButton){
-  paymentButton.addEventListener('click',async()=>{
-    const amountField=document.getElementById('payment-amount');
-    const emailField=document.getElementById('payment-email');
-    const consent=document.getElementById('legal-consent');
-    const amount=Number(amountField.value);
-    const email=emailField.value.trim();
+const yookassaDialog=document.getElementById('yookassa-dialog');
+const yookassaPayForm=document.getElementById('yookassa-pay-form');
+const yookassaAmount=document.getElementById('yk-sum-input');
+const yookassaCustomer=document.getElementById('yk-customer-number');
+const yookassaFormStatus=document.getElementById('yookassa-form-status');
+let yookassaOrderReference='';
+
+function makeYookassaOrderReference(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  return 'V3D-'+Array.from({length:4},()=>chars[Math.floor(Math.random()*chars.length)]).join('');
+}
+function updateYookassaCustomerNumber(){
+  const item=document.getElementById('type').value.trim();
+  const quantity=document.getElementById('qty').value;
+  const color=document.getElementById('color').value.trim();
+  const details=document.getElementById('details').value.trim();
+  const delivery=selectedDelivery?('СДЭК, '+selectedDelivery.city+(selectedDelivery.pvz?', '+selectedDelivery.pvz:'')):'доставка согласуется';
+  const composition=[item+' × '+quantity,color?'цвет: '+color:'',details?'задача: '+details:'',delivery].filter(Boolean).join('; ');
+  yookassaCustomer.value='Заказ #'+yookassaOrderReference+' | '+composition+' | VOXEL 3D (3D-печать)';
+}
+function syncYookassaAmount(){
+  const amount=Number(document.getElementById('payment-amount').value);
+  if(!Number.isFinite(amount)||amount<1||amount>300000)return false;
+  yookassaAmount.value=String(amount);
+  yookassaAmount.dispatchEvent(new Event('input',{bubbles:true}));
+  yookassaAmount.dispatchEvent(new Event('change',{bubbles:true}));
+  return true;
+}
+if(paymentButton&&yookassaDialog&&yookassaPayForm){
+  paymentButton.addEventListener('click',()=>{
     if(!paymentForm.reportValidity())return;
-    if(!Number.isInteger(amount)||amount<1||amount>300000){paymentStatus.textContent='Укажите сумму от 1 до 300 000 ₽.';amountField.focus();return}
-    if(!emailField.checkValidity()||!email){paymentStatus.textContent='Укажите корректный e-mail.';emailField.focus();return}
-    if(!consent.checked){paymentStatus.textContent='Для перехода к оплате примите условия оферты и политику обработки данных.';consent.focus();return}
-    paymentButton.disabled=true;
-    paymentStatus.textContent='Создаём защищённую ссылку ЮKassa…';
-    const returnUrl=new URL('/?payment=return',window.location.origin).toString();
-    const description=(document.getElementById('type').value+' — '+document.getElementById('details').value.trim()).slice(0,128);
-    try{
-      const response=await fetch(apiUrl('api/create-payment'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify({amount_rub:amount,customer_email:email,description,return_url:returnUrl,legal_consent:consent.checked})});
-      const data=await response.json();
-      if(!response.ok)throw new Error(data.error||'Не удалось создать платёж.');
-      if(typeof data.confirmation_url!=='string'||!data.confirmation_url.startsWith('https://'))throw new Error('ЮKassa не вернула ссылку для оплаты.');
-      paymentStatus.textContent='Ссылка создана. Переходим к защищённой оплате…';
-      window.location.assign(data.confirmation_url);
-    }catch(error){paymentStatus.textContent=error.message||'Сервис оплаты временно недоступен.';paymentButton.disabled=false}
+    const amountField=document.getElementById('payment-amount');
+    const amount=Number(amountField.value);
+    if(!Number.isFinite(amount)||amount<1||amount>300000){
+      paymentStatus.textContent='Укажите сумму от 1 до 300 000 ₽.';
+      amountField.focus();
+      return;
+    }
+    if(!document.getElementById('legal-consent').checked){
+      paymentStatus.textContent='Для оплаты примите условия оферты и согласие на обработку персональных данных.';
+      document.getElementById('legal-consent').focus();
+      return;
+    }
+    yookassaOrderReference=makeYookassaOrderReference();
+    updateYookassaCustomerNumber();
+    syncYookassaAmount();
+    yookassaFormStatus.textContent='';
+    paymentStatus.textContent='';
+    yookassaDialog.showModal();
+  });
+  yookassaPayForm.addEventListener('submit',event=>{
+    if(!paymentForm.reportValidity()){
+      event.preventDefault();
+      yookassaDialog.close();
+      return;
+    }
+    const amount=Number(yookassaAmount.value);
+    if(!Number.isFinite(amount)||amount<1||amount>300000){
+      event.preventDefault();
+      yookassaFormStatus.textContent='Укажите сумму от 1 до 300 000 ₽.';
+      yookassaAmount.focus();
+      return;
+    }
+    if(!document.getElementById('legal-consent').checked){
+      event.preventDefault();
+      yookassaFormStatus.textContent='Для оплаты примите условия оферты и согласие на обработку персональных данных.';
+      return;
+    }
+    updateYookassaCustomerNumber();
+    yookassaFormStatus.textContent='Переходим к защищённой оплате ЮKassa…';
+  });
+  yookassaDialog.querySelector('.legal-close').addEventListener('click',()=>yookassaDialog.close());
+  yookassaDialog.addEventListener('click',event=>{
+    if(event.target===yookassaDialog){
+      const rect=yookassaDialog.getBoundingClientRect();
+      if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)yookassaDialog.close();
+    }
   });
 }
 if(new URLSearchParams(window.location.search).get('payment')==='return'&&paymentStatus){
