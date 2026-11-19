@@ -277,30 +277,119 @@ const cdekPvzList=document.getElementById('cdek-pvz-list');
 const cdekPvzStatus=document.getElementById('cdek-pvz-status');
 const cdekDeliveryPoint=document.getElementById('cdek-delivery-point');
 let selectedPvzLabel='';
-
-cdekStatus.textContent='Проверяем подключение к API СДЭК…';
-fetch(apiUrl('api/cdek/status'),{headers:{accept:'application/json'}}).then(response=>response.ok?response.json():null).then(data=>{
-  cdekStatus.textContent=data&&data.ready?'Выберите город получения и укажите параметры упакованного заказа.':'Расчёт доставки пока недоступен. Оставьте заявку — уточним условия.';
-}).catch(()=>{cdekStatus.textContent='Не удалось проверить подключение к СДЭК. Оставьте заявку — уточним доставку.'});
 let cdekSearchTimer;
 let cdekSearchController;
+let cdekPvzController;
+let cdekRatesController;
+
+async function cdekRequest(route,{params,signal,body}={}){
+  const headers={accept:'application/json'};
+  const options={headers,signal};
+  if(body){
+    options.method='POST';
+    headers['content-type']='application/json';
+    options.body=JSON.stringify(body);
+  }
+  let response, raw;
+  try{
+    response=await fetch(apiUrl('api/cdek/'+route,params),options);
+    raw=await response.text();
+  }catch(error){
+    if(error.name==='AbortError')throw error;
+    throw new Error('Нет связи с сервером СДЭК.',{cause:error});
+  }
+  const status='HTTP '+response.status;
+  let data;
+  if(raw.trim()){
+    try{data=JSON.parse(raw)}
+    catch{
+      if(response.ok)throw new Error('Сервер вернул ответ не в формате JSON ('+status+').');
+    }
+  }
+  const jsonError=[data?.error,data?.message].find(value=>typeof value==='string'&&value.trim());
+  if(!response.ok || data?.ok===false || data?.error){
+    const textError=!data&&!raw.trimStart().startsWith('<')?raw.trim().slice(0,300):'';
+    const detail=jsonError || textError || (!raw.trim()?'пустой ответ сервера':'сервер не сообщил причину ошибки');
+    throw new Error(status+' — '+detail);
+  }
+  if(!raw.trim())throw new Error('Сервер вернул пустой ответ ('+status+').');
+  if(!data || typeof data!=='object')throw new Error('Сервер вернул ответ неожиданного формата ('+status+').');
+  return data;
+}
+
+function cdekList(data,...keys){
+  for(const key of keys){
+    if(Array.isArray(data[key]))return data[key];
+  }
+  throw new Error('В ответе сервера нет ожидаемого списка ('+keys[0]+').');
+}
+
+function showCdekError(error,action,status=cdekStatus){
+  if(error.name==='AbortError')return;
+  console.error('[СДЭК] '+action,error);
+  if(status)status.textContent=action+': '+error.message;
+}
+
+const cdekCheckingStatus=cdekStatus.textContent;
+cdekRequest('status').then(data=>{
+  if(cdekStatus.textContent!==cdekCheckingStatus)return;
+  cdekStatus.textContent=(data.cdekConfigured??data.ready)
+    ? 'Введите город получения и укажите вес упакованного заказа.'
+    : 'Расчёт доставки пока недоступен. Оставьте заявку — уточним условия.';
+}).catch(error=>{
+  showCdekError(error,'Не удалось проверить подключение',cdekStatus.textContent===cdekCheckingStatus?cdekStatus:null);
+});
+
 function hideCdekSuggestions(){cdekSuggestions.hidden=true;cdekCity.setAttribute('aria-expanded','false')}
 function showCdekSuggestions(){cdekSuggestions.hidden=false;cdekCity.setAttribute('aria-expanded','true')}
+
+function cancelCdekCitySearch(){
+  clearTimeout(cdekSearchTimer);
+  cdekSearchController?.abort();
+  cdekSuggestions.replaceChildren();
+  hideCdekSuggestions();
+}
+
+async function findCdekCities(query,signal){
+  const data=await cdekRequest('cities',{params:{q:query},signal});
+  const cities=cdekList(data,'cities');
+  const suggestions=cities.map(city=>({
+    code:Number(city?.code),
+    name:city?.fullName||city?.name||[city?.city,city?.region].filter(Boolean).join(', ')
+  })).filter(city=>Number.isInteger(city.code)&&city.code>0&&city.name);
+  if(cities.length&&!suggestions.length)throw new Error('В ответе сервера нет городов с кодом и названием.');
+  return suggestions;
+}
+
+function chooseCdekCity(city){
+  cancelCdekCitySearch();
+  cdekCity.value=city.name;
+  cdekCityCode.value=String(city.code);
+  loadCdekPvz(city.code);
+}
+
 async function loadCdekPvz(cityCode){
-  cdekPvz.hidden=false;cdekDeliveryPoint.value='';selectedPvzLabel='';cdekPvzList.replaceChildren();cdekPvzStatus.textContent='Загружаем пункты выдачи…';
+  cdekPvzController?.abort();
+  const controller=cdekPvzController=new AbortController();
+  cdekPvz.hidden=false;
+  cdekDeliveryPoint.value='';
+  selectedPvzLabel='';
+  cdekPvzList.replaceChildren();
+  cdekPvzStatus.textContent='Загружаем пункты выдачи…';
   try{
-    const response=await fetch(apiUrl('api/cdek/delivery-points',{city_code:cityCode}),{headers:{accept:'application/json'}});
-    const data=await response.json();if(!response.ok)throw new Error(data.error||'Не удалось загрузить ПВЗ.');
-    const points=data.deliveryPoints||[];
+    const data=await cdekRequest('delivery-points',{params:{city_code:cityCode},signal:controller.signal});
+    if(controller.signal.aborted)return;
+    const points=cdekList(data,'points','deliveryPoints');
     if(!points.length){cdekPvzStatus.textContent='В этом городе пункты выдачи не найдены.';return}
-    cdekPvzStatus.textContent='Выберите пункт выдачи ('+points.length+').';
+    cdekPvzStatus.textContent='Выберите пункт выдачи ('+points.length+'), если нужен самовывоз.';
     points.forEach((point)=>{
       const label=document.createElement('label');label.className='cdek-pvz-card';
-      const radio=document.createElement('input');radio.type='radio';radio.name='cdek-pvz-choice';radio.value=point.code;radio.required=true;
+      const radio=document.createElement('input');radio.type='radio';radio.name='cdek-pvz-choice';radio.value=point.code;
       radio.addEventListener('change',()=>{
         cdekDeliveryPoint.value=point.code;
         selectedPvzLabel=point.name+' ('+point.address+')';
-        cdekStatus.textContent='ПВЗ выбран. Теперь можно рассчитать тариф.';
+        if(selectedDelivery)selectedDelivery.pvz=selectedPvzLabel;
+        cdekPvzStatus.textContent='Пункт выдачи выбран.';
       });
       const details=document.createElement('span');details.className='cdek-pvz-details';
       const name=document.createElement('strong');name.textContent=point.name;
@@ -308,36 +397,55 @@ async function loadCdekPvz(cityCode){
       const hours=document.createElement('small');hours.textContent=point.workTime;
       details.append(name,address);if(point.workTime)details.append(hours);label.append(radio,details);cdekPvzList.append(label);
     });
-  }catch(error){cdekPvzStatus.textContent=error.message||'Сервис СДЭК временно недоступен.'}
+  }catch(error){
+    if(!controller.signal.aborted)showCdekError(error,'Не удалось загрузить пункты выдачи',cdekPvzStatus);
+  }
 }
+
+const cdekNoCity='Город не найден. Проверьте полное название.';
 cdekCity.addEventListener('input',()=>{
+  cancelCdekCitySearch();
+  cdekPvzController?.abort();
+  cdekRatesController?.abort();
   cdekCityCode.value='';
-  cdekDeliveryPoint.value='';selectedPvzLabel='';selectedDelivery=null;
+  cdekDeliveryPoint.value='';
+  selectedPvzLabel='';
+  selectedDelivery=null;
   refreshCalculatedPaymentTotal();
-  cdekPvz.hidden=true;cdekPvzList.replaceChildren();
+  cdekPvz.hidden=true;
+  cdekPvzList.replaceChildren();
   cdekRates.hidden=true;
-  clearTimeout(cdekSearchTimer);
-  if(cdekSearchController)cdekSearchController.abort();
   const query=cdekCity.value.trim();
-  if(query.length<2){hideCdekSuggestions();cdekSuggestions.replaceChildren();return}
+  if(query.length<2){
+    cdekStatus.textContent='Введите название города получения.';
+    return;
+  }
   cdekStatus.textContent='Ищем город в справочнике СДЭК…';
   cdekSearchTimer=setTimeout(async()=>{
-    cdekSearchController=new AbortController();
+    const controller=cdekSearchController=new AbortController();
     try{
-      const response=await fetch(apiUrl('api/cdek/cities',{name:query}),{signal:cdekSearchController.signal,headers:{accept:'application/json'}});
-      const data=await response.json();
-      if(!response.ok)throw new Error(data.error||'Не удалось найти город.');
-      cdekSuggestions.replaceChildren();
-      (data.cities||[]).forEach(city=>{
+      const cities=await findCdekCities(query,controller.signal);
+      if(controller.signal.aborted)return;
+      if(!cities.length){
+        cdekStatus.textContent=cdekNoCity;
+        return;
+      }
+      for(const city of cities){
         const option=document.createElement('button');
-        option.type='button';option.className='cdek-suggestion';option.setAttribute('role','option');option.textContent=city.name;
-        option.addEventListener('click',()=>{cdekCity.value=city.name;cdekCityCode.value=String(city.code);hideCdekSuggestions();cdekStatus.textContent='Город выбран. Загружаем пункты выдачи…';loadCdekPvz(city.code)});
+        option.type='button';
+        option.className='cdek-suggestion';
+        option.setAttribute('role','option');
+        option.textContent=city.name;
+        option.addEventListener('click',()=>{
+          chooseCdekCity(city);
+          cdekStatus.textContent='Город выбран. Можно рассчитать тарифы.';
+        });
         cdekSuggestions.append(option);
-      });
-      if(cdekSuggestions.childElementCount){showCdekSuggestions();cdekStatus.textContent='Выберите подходящий город из списка.'}
-      else{hideCdekSuggestions();cdekStatus.textContent='Город не найден. Проверьте написание.'}
+      }
+      showCdekSuggestions();
+      cdekStatus.textContent='Выберите город из списка или нажмите «Узнать тарифы СДЭК».';
     }catch(error){
-      if(error.name!=='AbortError'){hideCdekSuggestions();cdekStatus.textContent=error.message||'Сервис СДЭК временно недоступен.'}
+      if(!controller.signal.aborted)showCdekError(error,'Не удалось найти город');
     }
   },300);
 });
@@ -364,7 +472,10 @@ function selectTariff(tariff,cardElement){
 }
 function renderCdekRates(tariffs){
   cdekRates.replaceChildren();
-  if(!tariffs.length){const empty=document.createElement('p');empty.className='cdek-empty';empty.textContent='Для этого направления тарифы не найдены.';cdekRates.append(empty);cdekRates.hidden=false;return}
+  if(!tariffs.length){
+    cdekStatus.textContent='Для этого направления тарифы не найдены.';
+    return;
+  }
   const heading=document.createElement('h4');heading.textContent='Доступные тарифы (нажмите на нужный, чтобы добавить в заявку)';cdekRates.append(heading);
   const list=document.createElement('div');list.className='cdek-rate-list';
   tariffs.forEach((tariff,idx)=>{
@@ -381,28 +492,71 @@ function renderCdekRates(tariffs){
 }
 cdekForm.addEventListener('submit',async event=>{
   event.preventDefault();
-  if(!cdekCityCode.value){cdekStatus.textContent='Выберите город из подсказок СДЭК.';cdekCity.focus();return}
-  if(!cdekDeliveryPoint.value){cdekStatus.textContent='Выберите пункт выдачи СДЭК.';cdekPvz.scrollIntoView({behavior:'smooth',block:'center'});return}
-  const weight=Number(document.getElementById('cdek-weight').value);
-  if(!Number.isInteger(weight)||weight<1){cdekStatus.textContent='Укажите вес посылки в граммах.';document.getElementById('cdek-weight').focus();return}
-  const dimensionIds=['cdek-length','cdek-width','cdek-height'];
-  const dimensions=dimensionIds.map(id=>document.getElementById(id).value.trim());
+  const button=cdekForm.querySelector('button[type="submit"]');
+  if(button.disabled)return;
+  const query=cdekCity.value.trim();
+  if(query.length<2){
+    cdekStatus.textContent='Введите название города получения.';
+    cdekCity.focus();
+    return;
+  }
+  const weightField=document.getElementById('cdek-weight');
+  const weight=Number(weightField.value);
+  if(!Number.isInteger(weight)||weight<1){
+    cdekStatus.textContent='Укажите вес посылки в граммах.';
+    weightField.focus();
+    return;
+  }
+  const dimensions=['length','width','height'].map(key=>document.getElementById('cdek-'+key).value.trim());
   const hasDimensions=dimensions.some(Boolean);
   if(hasDimensions&&dimensions.some(value=>!value||!Number.isInteger(Number(value))||Number(value)<1)){
-    cdekStatus.textContent='Заполните все три размера в сантиметрах или оставьте их пустыми.';return;
+    cdekStatus.textContent='Заполните все три размера в сантиметрах или оставьте их пустыми.';
+    return;
   }
-  const button=cdekForm.querySelector('button[type="submit"]');
-  const originalLabel=button.textContent;button.disabled=true;button.textContent='Считаем тарифы…';
-  cdekStatus.textContent='Запрашиваем стоимость и срок доставки у СДЭК…';cdekRates.hidden=true;
-  const payload={city_code:Number(cdekCityCode.value),weight_g:weight,delivery_point:cdekDeliveryPoint.value};
-  if(hasDimensions){payload.length_cm=Number(dimensions[0]);payload.width_cm=Number(dimensions[1]);payload.height_cm=Number(dimensions[2])}
+
+  cancelCdekCitySearch();
+  const controller=cdekRatesController=new AbortController();
+  const originalMarkup=button.innerHTML;
+  button.disabled=true;
+  button.textContent='Считаем тарифы…';
+  cdekRates.hidden=true;
+  selectedDelivery=null;
+  refreshCalculatedPaymentTotal();
+  let errorAction='Не удалось найти город';
   try{
-    const response=await fetch(apiUrl('api/cdek/rates'),{method:'POST',headers:{'content-type':'application/json','accept':'application/json'},body:JSON.stringify(payload)});
-    const data=await response.json();
-    if(!response.ok)throw new Error(data.error||'Не удалось рассчитать доставку.');
-    renderCdekRates(data.tariffs||[]);
-  }catch(error){cdekStatus.textContent=error.message||'Сервис СДЭК временно недоступен.'}
-  finally{button.disabled=false;button.textContent=originalLabel}
+    if(!cdekCityCode.value){
+      cdekStatus.textContent='Ищем город в справочнике СДЭК…';
+      const cities=await findCdekCities(query,controller.signal);
+      if(controller.signal.aborted)return;
+      if(!cities.length){
+        cdekStatus.textContent=cdekNoCity;
+        cdekCity.focus();
+        return;
+      }
+      chooseCdekCity(cities[0]);
+    }
+    errorAction='Не удалось рассчитать доставку';
+    cdekStatus.textContent='Запрашиваем стоимость и срок доставки у СДЭК…';
+    const body={cityCode:Number(cdekCityCode.value),weight};
+    if(hasDimensions)[body.length,body.width,body.height]=dimensions.map(Number);
+    const data=await cdekRequest('rates',{body,signal:controller.signal});
+    if(controller.signal.aborted)return;
+    const tariffs=cdekList(data,'tariffs').map(tariff=>({
+      name:tariff?.tariff_name??tariff?.name,
+      price:tariff?.delivery_sum??tariff?.price,
+      daysMin:tariff?.period_min??tariff?.daysMin,
+      daysMax:tariff?.period_max??tariff?.daysMax
+    }));
+    if(tariffs.some(tariff=>!tariff.name||tariff.price==null||!Number.isFinite(Number(tariff.price)))){
+      throw new Error('Сервер вернул тариф без названия или стоимости.');
+    }
+    renderCdekRates(tariffs);
+  }catch(error){
+    if(!controller.signal.aborted)showCdekError(error,errorAction);
+  }finally{
+    button.disabled=false;
+    button.innerHTML=originalMarkup;
+  }
 });
 
 const paymentButton=document.getElementById('create-payment');
