@@ -1,66 +1,73 @@
-const reviewForm = document.getElementById('review-form');
-const reviewStatus = document.getElementById('review-status');
-const reviewFallback = document.getElementById('review-mail-fallback');
-const reviewButton = reviewForm.querySelector('[type="submit"]');
-const reviewEndpoint = 'https://functions.yandexcloud.net/d4evt0q80matet5dunuk?route=api/send-order';
+const form = document.getElementById('review-form');
+const button = form.querySelector('[type="submit"]');
+const status = document.getElementById('review-status');
+const result = document.getElementById('review-result');
+const photoInput = document.getElementById('review-photo');
+const endpoint = 'https://voxel-3d-reviews-api.satinhyacinth.chatgpt.site/reviews';
 
-function setReviewStatus(message, state = '') {
-  reviewStatus.textContent = message;
-  reviewStatus.dataset.state = state;
+async function preparePhoto(file) {
+  if (file.size > 15000000) throw new Error('Выберите фото размером до 15 МБ.');
+  if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+    throw new Error('Выберите фото в JPG, PNG или WebP.');
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    try { await image.decode(); } catch { throw new Error('Не удалось открыть фото. Выберите другой файл.'); }
+    const scale = Math.min(1, 1400 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const context = canvas.getContext('2d', { alpha: false });
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    context.drawImage(image, 0, 0, canvas.width, canvas.height);
+    for (const quality of [0.85, 0.7, 0.55, 0.4]) {
+      const photo = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
+      if (photo && photo.size <= 900000) return photo;
+    }
+    throw new Error('Не удалось уменьшить фото. Выберите меньший файл.');
+  } finally { URL.revokeObjectURL(url); }
 }
 
-reviewForm.addEventListener('input', event => {
+form.addEventListener('input', event => {
   if (event.target.validity?.customError) event.target.setCustomValidity('');
-  reviewFallback.hidden = true;
+  result.hidden = true;
 });
 
-reviewForm.addEventListener('submit', async event => {
+form.addEventListener('submit', async event => {
   event.preventDefault();
-  if (reviewButton.disabled) return;
-
-  const fields = new FormData(reviewForm);
-  const name = String(fields.get('name') ?? '').trim();
-  const text = String(fields.get('text') ?? '').trim();
-  const rating = Number(fields.get('rating'));
-  const email = String(fields.get('email') ?? '').trim();
-  const nameField = reviewForm.elements.namedItem('name');
-  const textField = reviewForm.elements.namedItem('text');
-
-  nameField.setCustomValidity(name ? '' : 'Укажите имя или псевдоним.');
-  textField.setCustomValidity(text ? '' : 'Напишите отзыв.');
-  if (!reviewForm.reportValidity() || !Number.isInteger(rating) || rating < 1 || rating > 5) return;
-
-  const publicationLine = JSON.stringify({ name, rating, text })
-    .replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
-  const description = 'Отзыв с сайта Voxel 3D. Требуется модерация.\n\n'
-    + 'Если вы одобрили отзыв, скопируйте строку ниже в reviews/published.ndjson:\n'
-    + publicationLine;
-  reviewFallback.href = 'mailto:voxel3d.shop@yandex.ru?subject='
-    + encodeURIComponent('[Отзыв] Voxel 3D') + '&body=' + encodeURIComponent(description);
-  reviewFallback.hidden = true;
-
-  reviewButton.disabled = true;
-  setReviewStatus('Отправляем отзыв…');
-  try {
-    const response = await fetch(reviewEndpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify({
-        item: '[Отзыв] Voxel 3D',
-        quantity: 1,
-        description,
-        contact: email
-      })
-    });
-    const data = await response.json();
-    if (!response.ok || data.ok !== true) throw new Error('Review delivery was not confirmed');
-
-    reviewForm.reset();
-    setReviewStatus('Спасибо! Отзыв отправлен на модерацию.', 'success');
-  } catch {
-    setReviewStatus('Сайт не смог подтвердить отправку. Можно попробовать ещё раз или отправить отзыв на почту.', 'error');
-    reviewFallback.hidden = false;
-  } finally {
-    reviewButton.disabled = false;
+  if (button.disabled) return;
+  const body = new FormData(form);
+  for (const name of ['name', 'text']) {
+    const input = form.elements.namedItem(name);
+    body.set(name, input.value.trim());
+    input.setCustomValidity(input.value.trim() ? '' : 'Заполните это поле.');
   }
+  if (!form.reportValidity()) return;
+
+  result.hidden = true;
+  button.disabled = true;
+  status.dataset.state = '';
+  status.textContent = 'Публикуем отзыв…';
+  try {
+    const file = photoInput.files[0];
+    if (file) body.set('photo', await preparePhoto(file), 'review.jpg');
+    else body.delete('photo');
+    const response = await fetch(endpoint, { method: 'POST', body });
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.id) {
+      throw new Error(data?.error || 'Сайт не подтвердил публикацию. Попробуйте позже.');
+    }
+    form.reset();
+    status.textContent = 'Спасибо! Отзыв опубликован.';
+    status.dataset.state = 'success';
+    result.hidden = false;
+  } catch (error) {
+    status.textContent = error instanceof TypeError
+      ? 'Не удалось связаться с сайтом. Проверьте подключение и попробуйте ещё раз.'
+      : error.message;
+    status.dataset.state = 'error';
+  } finally { button.disabled = false; }
 });
