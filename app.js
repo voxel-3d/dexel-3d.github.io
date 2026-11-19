@@ -649,7 +649,10 @@ if(paymentButton&&yookassaDialog&&yookassaPayForm){
       yookassaFormStatus.textContent='Карточка заказа отправлена. Переходим к оплате…';
       window.location.assign(paymentData.confirmation_url);
     }catch(error){
-      yookassaFormStatus.textContent=error.message||'Не удалось создать платёж. Попробуйте ещё раз.';
+      const serverMessage=String(error&&error.message||'');
+      yookassaFormStatus.textContent=/актив|ключ/i.test(serverMessage)
+        ? 'Не удалось подготовить оплату. Свяжитесь с мастером, чтобы уточнить способ оплаты.'
+        : (serverMessage||'Не удалось создать платёж. Попробуйте ещё раз.');
       yookassaSubmitButton.disabled=false;
     }
   });
