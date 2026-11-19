@@ -326,3 +326,22 @@ dialog.payment-dialog::backdrop{background:rgba(0,0,0,.78);backdrop-filter:blur(
 .payment-dialog .payment-security-note{margin:14px 0 0;color:#a5a898;font-size:11px;line-height:1.55;text-align:center}
 #brief-form input.payment-field-invalid,#brief-form input[aria-invalid="true"],.checkout-payment-form input.payment-field-invalid{border-color:#db7659!important;box-shadow:0 0 0 3px rgba(219,118,89,.16)!important}
 @media(max-width:520px){dialog.payment-dialog[open]{max-height:calc(100dvh - 24px);overflow-y:auto;padding:24px 20px}.checkout-payment-form{padding:14px}}
+
+/* Order payment amount is the full agreed total; the selected ratio sets the payable amount. */
+.prepay-box .payment-mode-options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:14px 0 18px}
+.payment-mode-option{display:flex;align-items:center;gap:10px;min-width:0;padding:13px 14px;border:1px solid rgba(229,169,59,.28);background:rgba(12,12,14,.55);cursor:pointer;transition:border-color .2s,background .2s,box-shadow .2s}
+.payment-mode-option:has(input:checked){border-color:var(--accent);background:rgba(229,169,59,.1);box-shadow:inset 0 0 0 1px rgba(229,169,59,.2)}
+.payment-mode-option input{flex:0 0 auto;width:17px;height:17px;margin:0;accent-color:var(--accent)}
+.payment-mode-option span{display:grid;gap:4px;min-width:0}
+.payment-mode-option strong{color:var(--paper);font-size:13px;line-height:1.3}
+.payment-mode-option small{color:var(--muted);font-size:10px;line-height:1.35}
+.prepay-box .payment-base-hint,.prepay-box .payment-mode-summary{margin:8px 0 12px;color:var(--muted);font-size:12px;line-height:1.5}
+.prepay-box .payment-mode-summary{color:var(--accent);font-weight:700}
+#payment-amount[readonly]{color:var(--paper);border-color:rgba(229,169,59,.42);cursor:default}
+.checkout-payment-form .payment-mode-options-modal{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:2px 0 8px}
+.checkout-payment-form .payment-mode-option{padding:10px 9px;gap:7px}
+.checkout-payment-form .payment-mode-option strong{font-size:11px}
+.checkout-payment-form .payment-mode-option small{font-size:9px}
+.checkout-payment-form input[readonly]{cursor:default;background:#10110f;color:var(--accent);font-size:30px}
+.payment-dialog .payment-amount-summary{margin:0;color:var(--accent);font-size:14px;font-weight:800;line-height:1.5}
+@media(max-width:700px){.prepay-box .payment-mode-options,.checkout-payment-form .payment-mode-options-modal{grid-template-columns:1fr}.payment-mode-option{padding:12px}.payment-mode-option small{font-size:11px}.checkout-payment-form .payment-mode-option strong{font-size:13px}.checkout-payment-form .payment-mode-option small{font-size:10px}}
