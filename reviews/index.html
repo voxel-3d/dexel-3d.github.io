@@ -9,8 +9,8 @@
   <link rel="canonical" href="https://voxel-3d.github.io/reviews/">
   <link rel="icon" href="../assets/voxel-logo-new.jpg">
   <link rel="stylesheet" href="../style.css">
-  <link rel="stylesheet" href="reviews.css">
-  <script src="reviews.js?v=form-only" defer></script>
+  <link rel="stylesheet" href="reviews.css?v=photo">
+  <script src="reviews.js?v=photo" defer></script>
 </head>
 <body class="reviews-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -24,7 +24,7 @@
     <section class="section review-intro" aria-labelledby="review-title">
       <div class="review-intro-copy">
         <h1 id="review-title">Оставить отзыв о <em>Voxel 3D</em></h1>
-        <p>Расскажите, что мы для вас напечатали и как прошёл заказ. После проверки ваш отзыв появится на странице отзывов.</p>
+        <p>Расскажите, что мы для вас напечатали и как прошёл заказ. Отзыв с фотографией появится сразу после отправки.</p>
         <a class="review-store-link" href="published/">Читать опубликованные отзывы <span aria-hidden="true">↗</span></a>
       </div>
       <form class="review-form" id="review-form" method="post" aria-labelledby="review-form-title">
@@ -47,19 +47,20 @@
             </select>
           </div>
         </div>
-        <label for="review-email">Почта для связи</label>
-        <input id="review-email" name="email" type="email" maxlength="160" autocomplete="email" aria-describedby="review-email-note" required>
-        <p class="review-form-note" id="review-email-note">Почту увидит только мастерская, если понадобится уточнить детали.</p>
         <label for="review-text">Ваш отзыв</label>
         <textarea id="review-text" name="text" rows="5" maxlength="800" aria-describedby="review-text-note" required></textarea>
         <p class="review-form-note" id="review-text-note">До 800 символов. Не указывайте в отзыве контакты или адрес доставки.</p>
+        <label for="review-photo">Фото изделия <small>(необязательно)</small></label>
+        <input id="review-photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" aria-describedby="review-photo-note">
+        <p class="review-form-note" id="review-photo-note">Одно фото в JPG, PNG или WebP, до 15 МБ.</p>
+        <div hidden aria-hidden="true"><input name="website" type="text" tabindex="-1" autocomplete="off"></div>
         <label class="review-consent">
           <input type="checkbox" name="consent" required>
-          <span>Разрешаю опубликовать указанное имя, оценку и текст после проверки.</span>
+          <span>Разрешаю опубликовать имя, оценку, текст и приложенное фото.</span>
         </label>
-        <button class="button" type="submit">Отправить на модерацию <span aria-hidden="true">→</span></button>
+        <button class="button" type="submit">Опубликовать отзыв <span aria-hidden="true">→</span></button>
         <p class="review-form-status" id="review-status" role="status" aria-live="polite"></p>
-        <a class="review-store-link" id="review-mail-fallback" href="mailto:voxel3d.shop@yandex.ru" hidden>Отправить отзыв по почте ↗</a>
+        <a class="review-store-link" id="review-result" href="published/" hidden>Читать отзывы</a>
       </form>
     </section>
   </main>
