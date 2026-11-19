@@ -1,0 +1,89 @@
+.reviews-page .review-intro {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+  align-items: start;
+  gap: clamp(28px, 6vw, 80px);
+}
+
+.review-intro-copy h1 {
+  font-size: clamp(38px, 5.5vw, 76px);
+  line-height: 1.05;
+  letter-spacing: -.04em;
+  margin: 0 0 22px;
+}
+
+.review-intro-copy p {
+  color: var(--muted);
+  line-height: 1.75;
+  max-width: 42ch;
+  margin: 0 0 24px;
+}
+
+.review-store-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: .25em;
+}
+
+.review-form {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  padding: clamp(20px, 4vw, 36px);
+}
+
+.review-form h2,
+.published-reviews h2 {
+  margin: 0 0 18px;
+  font-size: clamp(24px, 3.2vw, 36px);
+  line-height: 1.2;
+}
+
+.review-form-note {
+  margin: -8px 0 16px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.review-form .review-consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  margin: 20px 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.review-consent input {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+}
+
+.review-form button:disabled {
+  opacity: .65;
+  cursor: wait;
+}
+
+.review-form-status {
+  margin: 14px 0 0;
+  line-height: 1.5;
+}
+
+.review-form-status:empty { margin: 0; }
+.review-form-status[data-state="success"] { color: #a7d7a0; }
+.review-form-status[data-state="error"] { color: #ffbba8; }
+#review-mail-fallback { display: inline-block; margin-top: 8px; }
+#review-mail-fallback[hidden] { display: none; }
+.published-reviews { padding-top: 0; }
+.published-reviews .review-card { overflow-wrap: anywhere; }
+.published-reviews blockquote { white-space: pre-wrap; }
+.reviews-page .footer { display: flex; flex-wrap: wrap; gap: 16px 28px; }
+
+@media (max-width: 760px) {
+  .reviews-page .review-intro,
+  .review-form .form-row { grid-template-columns: minmax(0, 1fr); }
+  .reviews-page .review-form .button { justify-content: space-between; width: 100%; }
+}
