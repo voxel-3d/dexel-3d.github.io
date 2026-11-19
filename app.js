@@ -411,6 +411,7 @@ const paymentForm=document.getElementById('brief-form');
 const paymentEmail=document.getElementById('payment-email');
 const yookassaDialog=document.getElementById('yookassa-dialog');
 const yookassaPayForm=document.getElementById('yookassa-pay-form');
+const yookassaHostedPayForm=document.getElementById('yk-hosted-pay-form');
 const yookassaAmount=document.getElementById('yk-sum-input');
 const paymentAmountField=document.getElementById('payment-amount');
 const paymentModeSummary=document.getElementById('payment-mode-summary');
@@ -642,6 +643,15 @@ if(paymentButton&&yookassaDialog&&yookassaPayForm){
         })
       });
       const paymentData=await paymentResponse.json().catch(()=>({}));
+      // Use the hosted form only when the API explicitly rejects payment before creation.
+      if(yookassaHostedPayForm && paymentResponse.status === 503 &&
+          /ожидает\s+активации\s+боевых\s+ключей/iu.test(paymentData.error||'')){
+        yookassaHostedPayForm.elements.namedItem('sum').value=amount.toFixed(2);
+        yookassaHostedPayForm.elements.namedItem('customerNumber').value=description;
+        yookassaFormStatus.textContent='Карточка заказа отправлена. Переходим к оплате…';
+        yookassaHostedPayForm.submit();
+        return;
+      }
       if(!paymentResponse.ok)throw new Error(paymentData.error||'Не удалось создать платёж ЮKassa.');
       if(typeof paymentData.confirmation_url!=='string'||!paymentData.confirmation_url.startsWith('https://')){
         throw new Error('ЮKassa не вернула ссылку для оплаты.');
