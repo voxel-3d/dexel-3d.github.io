@@ -4,13 +4,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0c0c0d">
-  <meta name="description" content="Напишите отзыв о заказе в мастерской 3D-печати Voxel 3D или прочитайте отзывы покупателей.">
-  <title>Отзывы о мастерской Voxel 3D</title>
+  <meta name="description" content="Напишите отзыв о заказе в мастерской 3D-печати Voxel 3D.">
+  <title>Оставить отзыв о Voxel 3D</title>
   <link rel="canonical" href="https://voxel-3d.github.io/reviews/">
   <link rel="icon" href="../assets/voxel-logo-new.jpg">
   <link rel="stylesheet" href="../style.css">
   <link rel="stylesheet" href="reviews.css">
-  <script src="reviews.js" defer></script>
+  <script src="reviews.js?v=form-only" defer></script>
 </head>
 <body class="reviews-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -23,12 +23,12 @@
   <main id="main" class="wrap">
     <section class="section review-intro" aria-labelledby="review-title">
       <div class="review-intro-copy">
-        <h1 id="review-title">Отзывы о <em>Voxel 3D</em></h1>
-        <p>Расскажите, что мы для вас напечатали и как прошёл заказ. Ваш отзыв появится здесь после проверки мастерской.</p>
-        <a class="review-store-link" href="../#reviews">Отзывы покупателей на Ozon <span aria-hidden="true">↗</span></a>
+        <h1 id="review-title">Оставить отзыв о <em>Voxel 3D</em></h1>
+        <p>Расскажите, что мы для вас напечатали и как прошёл заказ. После проверки ваш отзыв появится на странице отзывов.</p>
+        <a class="review-store-link" href="published/">Читать опубликованные отзывы <span aria-hidden="true">↗</span></a>
       </div>
       <form class="review-form" id="review-form" method="post" aria-labelledby="review-form-title">
-        <h2 id="review-form-title">Оставить отзыв</h2>
+        <h2 id="review-form-title">Ваш отзыв</h2>
         <noscript><p>Для отправки через сайт включите JavaScript. Также можно <a class="review-store-link" href="mailto:voxel3d.shop@yandex.ru?subject=Отзыв%20Voxel%203D">написать мастерской</a>.</p></noscript>
         <div class="form-row">
           <div>
@@ -61,11 +61,6 @@
         <p class="review-form-status" id="review-status" role="status" aria-live="polite"></p>
         <a class="review-store-link" id="review-mail-fallback" href="mailto:voxel3d.shop@yandex.ru" hidden>Отправить отзыв по почте ↗</a>
       </form>
-    </section>
-    <section class="section published-reviews" aria-labelledby="published-title">
-      <h2 id="published-title">Опубликованные отзывы</h2>
-      <p class="review-form-note" id="review-list-status" role="status">Загружаем отзывы…</p>
-      <div class="reviews-grid" id="review-list"></div>
     </section>
   </main>
   <footer class="wrap footer">
