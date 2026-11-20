@@ -132,6 +132,9 @@ briefForm.addEventListener('voxel:prepare-stl',event=>{
 
   removeOrderModel();
   details.value=next;
+  if(typeof prepared.colorName==='string'&&prepared.colorName.trim()){
+    document.getElementById('color').value=prepared.colorName.trim();
+  }
   modelSummary=summary;
   details.setCustomValidity('');
   const orderType=document.getElementById('type');

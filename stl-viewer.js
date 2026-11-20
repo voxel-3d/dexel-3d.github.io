@@ -23,7 +23,18 @@ const MIN_SCALE = .1;
 const MAX_SCALE = 5;
 const MAX_INPUT_BYTES = 50 * 1024 * 1024;
 const DENSITY = { PETG: 1.27, PLA: 1.24, ABS: 1.04 };
-const COLORS = { black: 0x242629, gold: 0xd7a750, olive: 0x777a42, gray: 0x8b949b, white: 0xf1eee6 };
+const PLASTIC_FINISHES = {
+  black: { color: 0x1c1c1e, roughness: .9 },
+  white: { color: 0xf2f2f2 },
+  gold: { color: 0xd4af37, metalness: .35, roughness: .35 },
+  yellow: { color: 0xf5c518 },
+  red: { color: 0xc92a2a },
+  olive: { color: 0x556b2f },
+  coyote: { color: 0x8b7355 },
+  ultramarine: { color: 0x1b3f8b, transparent: true, opacity: .72, roughness: .2 },
+  green: { color: 0x2ecc40 },
+  marble: { color: 0xe6e4df, marble: true }
+};
 const display = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
 const rawNumber = value => Number(value.toPrecision(9));
 const clampScale = value => Math.max(MIN_SCALE, Math.min(MAX_SCALE, value));
@@ -158,12 +169,78 @@ function resetCamera() {
   render();
 }
 
+
+function createPreviewMaterial(THREE, size) {
+  const material = new THREE.MeshStandardMaterial({ side: THREE.DoubleSide });
+  const marbleEnabled = { value: 0 };
+  const marbleScale = { value: 1 / Math.max(...size) };
+  material.userData.marbleEnabled = marbleEnabled;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.voxelMarbleEnabled = marbleEnabled;
+    shader.uniforms.voxelMarbleScale = marbleScale;
+    // STL meshes have no UVs. Sample the grain in the original model coordinates.
+    shader.vertexShader = `
+      uniform float voxelMarbleScale;
+      varying vec3 vVoxelMarblePoint;
+    ` + shader.vertexShader.replace('#include <begin_vertex>', `
+      #include <begin_vertex>
+      vVoxelMarblePoint = position * voxelMarbleScale;
+    `);
+    shader.fragmentShader = `
+      uniform float voxelMarbleEnabled;
+      varying vec3 vVoxelMarblePoint;
+      float voxelGrainHash(vec3 p) {
+        p = fract(p * .1031);
+        p += dot(p, p.yzx + 33.33);
+        return fract((p.x + p.y) * p.z);
+      }
+      float voxelGrain(vec3 p) {
+        vec3 cell = floor(p);
+        vec3 frac = fract(p);
+        vec3 s = frac * frac * (3.0 - 2.0 * frac);
+        return mix(
+          mix(mix(voxelGrainHash(cell), voxelGrainHash(cell + vec3(1.,0.,0.)), s.x),
+              mix(voxelGrainHash(cell + vec3(0.,1.,0.)), voxelGrainHash(cell + vec3(1.,1.,0.)), s.x), s.y),
+          mix(mix(voxelGrainHash(cell + vec3(0.,0.,1.)), voxelGrainHash(cell + vec3(1.,0.,1.)), s.x),
+              mix(voxelGrainHash(cell + vec3(0.,1.,1.)), voxelGrainHash(cell + vec3(1.,1.,1.)), s.x), s.y),
+          s.z
+        );
+      }
+    ` + shader.fragmentShader.replace('#include <color_fragment>', `
+      #include <color_fragment>
+      if (voxelMarbleEnabled > .5) {
+        vec3 p = vVoxelMarblePoint;
+        float pattern = sin(dot(p, vec3(17., 12., 11.)) + 10. * voxelGrain(p * 5.));
+        float vein = smoothstep(.74, .99, pattern) * .23;
+        float flecks = smoothstep(.72, .90, voxelGrain(p * 96.)) * .29;
+        diffuseColor.rgb *= 1.0 - min(vein + flecks, .48) * vec3(1., .97, .92);
+      }
+    `);
+  };
+  return material;
+}
+
+function applyPlasticFinish(material, key) {
+  const {
+    color, metalness = .08, roughness = .77, transparent = false, opacity = 1, marble = false
+  } = PLASTIC_FINISHES[key] || PLASTIC_FINISHES.gold;
+  const transparencyChanged = material.transparent !== transparent;
+  material.color.setHex(color);
+  material.metalness = metalness;
+  material.roughness = roughness;
+  material.transparent = transparent;
+  material.opacity = opacity;
+  material.depthWrite = !transparent;
+  material.userData.marbleEnabled.value = marble ? 1 : 0;
+  if (transparencyChanged) material.needsUpdate = true;
+}
+
 function updateView() {
   if (!view?.mesh) return;
   const { mesh, camera, controls, render } = view;
   mesh.scale.set(...scale);
   mesh.position.set(-model.center.x * scale[0], -model.center.y * scale[1], -model.minZ * scale[2]);
-  mesh.material.color.setHex(COLORS[color.value]);
+  applyPlasticFinish(mesh.material, color.value);
   mesh.material.wireframe = wireframe.checked;
   const largestSide = Math.max(BED, ...getMetrics().size);
   camera.far = Math.max(camera.far, largestSide * 24);
@@ -227,7 +304,10 @@ function validateSTLBytes(buffer) {
 function updateButtons() {
   downloadButton.disabled = orderButton.disabled = !model || loading || exporting;
   settings.disabled = !model || loading || exporting;
-  viewOptions.disabled = !view?.mesh || loading;
+  viewOptions.disabled = !model || loading;
+  const sceneUnavailable = !view?.mesh;
+  wireframe.disabled = sceneUnavailable;
+  byId('stl-camera').disabled = sceneUnavailable;
 }
 
 async function loadModel(file) {
@@ -272,9 +352,7 @@ async function loadModel(file) {
     geometry = null;
     scale = [1, 1, 1];
     if (sceneView) {
-      sceneView.mesh = new lib.THREE.Mesh(model.geometry, new lib.THREE.MeshStandardMaterial({
-        roughness: .77, metalness: .08, side: lib.THREE.DoubleSide
-      }));
+      sceneView.mesh = new lib.THREE.Mesh(model.geometry, createPreviewMaterial(lib.THREE, model.size));
       sceneView.scene.add(sceneView.mesh);
       placeholder.hidden = true;
     }
@@ -341,6 +419,7 @@ async function exportModel(forOrder) {
       : factors.join(' × ') + '% (по осям X/Y/Z)';
     const detail = {
       file,
+      colorName: color.selectedOptions[0]?.textContent.trim(),
       summary: '3D-модель: ' + file.name + '\nГабариты (X × Y × Z): ' + size.map(value => display.format(value)).join(' × ') +
         ' мм. Масштаб: ' + scaleText + '. Материал: ' + material.value + '. Заполнение: ' + infill.value +
         '%. Примерный вес: ~' + display.format(weight) + ' г.'
