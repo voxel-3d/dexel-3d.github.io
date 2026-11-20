@@ -117,8 +117,8 @@
 
 .reviews-brand img {
   display: block;
-  width: 80px;
-  height: 80px;
+  width: 152px;
+  height: auto;
   object-fit: contain;
 }
 
@@ -129,5 +129,5 @@
 
 @media (max-width: 700px) {
   .reviews-page .reviews-page-header { min-height: 76px; }
-  .reviews-brand img { width: 58px; height: 58px; }
+  .reviews-brand img { width: 116px; }
 }

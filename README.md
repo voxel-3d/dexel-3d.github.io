@@ -1,4 +1,4 @@
-# Voxel 3D — запуск на Render
+# DEXEL 3D — запуск на Render
 
 Сайт собран как одно Node.js/Express-приложение: сервер раздаёт `public/` и проксирует запросы к API СДЭК и ЮKassa. Требуется Node.js 22 или новее.
 

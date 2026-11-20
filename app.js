@@ -247,7 +247,7 @@ briefForm.addEventListener('submit',async event=>{
   if(total!==null)payload.total=total;
 
   const lines=[
-    'Здравствуйте! Хочу оформить заказ в Voxel 3D.',
+    'Здравствуйте! Хочу оформить заказ в DEXEL 3D.',
     'Изделие: '+item,
     'Количество: '+quantity,
     'Цвет: '+(color||'подобрать вместе'),
