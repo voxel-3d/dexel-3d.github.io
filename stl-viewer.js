@@ -360,6 +360,7 @@ async function loadModel(file) {
     synchronize();
     resetCamera();
     status.textContent = file.name + (volume ? ' · модель загружена' : ' · объём не определён. Проверьте, что модель замкнута.');
+    document.dispatchEvent(new Event('voxel:stl-loaded'));
   } catch (error) {
     geometry?.dispose();
     status.textContent = error.message || 'Не удалось загрузить STL.';
