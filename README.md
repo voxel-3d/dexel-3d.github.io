@@ -51,6 +51,6 @@
 
 Новые отзывы с фото публикуются автоматически. Владелец скрывает и восстанавливает их через [панель модерации](https://voxel-3d-reviews-api.satinhyacinth.chatgpt.site/moderate) после входа в ChatGPT под аккаунтом владельца. Скрытый отзыв и его фото больше не выдаются публично.
 
-[Форма отзыва](https://voxel-3d.github.io/reviews/) и [страница опубликованных отзывов](https://voxel-3d.github.io/reviews/published/) обслуживаются GitHub Pages. API отзывов и хранилище фото развёрнуты отдельно, на https://voxel-3d-reviews-api.satinhyacinth.chatgpt.site. Доступ к действиям модератора на сервере ограничен аккаунтом владельца.
+[Форма отзыва](https://dexel3d.ru/reviews/) и [страница опубликованных отзывов](https://dexel3d.ru/reviews/published/) обслуживаются GitHub Pages. API отзывов и хранилище фото развёрнуты отдельно, на https://voxel-3d-reviews-api.satinhyacinth.chatgpt.site. Доступ к действиям модератора на сервере ограничен аккаунтом владельца.
 
 Ранее опубликованные отзывы видны в той же панели. Исходный архив остаётся в `reviews/published.ndjson`, а правки и видимость сохраняются через панель.
