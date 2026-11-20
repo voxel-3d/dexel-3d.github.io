@@ -171,11 +171,9 @@ document.getElementById('order-stl-download').addEventListener('click',()=>{
 
 async function uploadOrderModel(file){
   if(uploadedModel?.file===file)return uploadedModel.url;
-  const response=await fetch(ORDER_MODEL_URL,{
-    method:'POST',
-    headers:{'Content-Type':'application/octet-stream','X-Model-Name':encodeURIComponent(file.name)},
-    body:file
-  });
+  const body=new FormData();
+  body.set('file',file,file.name);
+  const response=await fetch(ORDER_MODEL_URL,{method:'POST',body});
   const data=await response.json().catch(()=>null);
   const url=data?.url;
   if(!response.ok||typeof url!=='string'||!url.startsWith(ORDER_MODEL_URL+'/')){
