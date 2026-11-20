@@ -1,0 +1,16 @@
+{
+  "name": "DEXEL 3D",
+  "short_name": "DEXEL 3D",
+  "description": "Мастерская 3D-печати на заказ и бесплатный онлайн-просмотрщик STL",
+  "lang": "ru",
+  "start_url": "/",
+  "icons": [
+    {
+      "src": "/assets/dexel-icon.png",
+      "sizes": "64x64",
+      "type": "image/png"
+    }
+  ],
+  "theme_color": "#0c0c0d",
+  "background_color": "#0c0c0d"
+}
