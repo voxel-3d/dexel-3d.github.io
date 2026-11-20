@@ -1,4 +1,16 @@
 const API_BASE_URL='https://functions.yandexcloud.net/d4evt0q80matet5dunuk';
+function reachMetrikaGoal(goal) {
+  if (typeof ym === 'function') {
+    try {
+      ym(114411857, 'reachGoal', goal);
+    } catch {
+      // A tracking failure must not interrupt the user's action.
+    }
+  }
+}
+
+document.addEventListener('voxel:stl-loaded', () => reachMetrikaGoal('stl_upload'));
+
 function apiUrl(route,params={}){
   const url=new URL(API_BASE_URL);
   url.searchParams.set('route',route);
@@ -270,6 +282,7 @@ briefForm.addEventListener('submit',async event=>{
     if(!response.ok||data.ok!==true){
       throw new Error(data.error||'Сервер не подтвердил отправку заявки. Попробуйте ещё раз.');
     }
+    reachMetrikaGoal('order_submit');
     orderStatus.textContent='Заявка отправлена! Мы получили её на почту и скоро свяжемся с вами.';
     orderStatus.className='form-note order-status is-success';
     document.getElementById('brief-result').hidden=true;
@@ -876,6 +889,7 @@ if(paymentButton&&yookassaDialog&&yookassaPayForm){
       total
     };
     yookassaSubmitButton.disabled=true;
+    reachMetrikaGoal('yookassa_pay');
     yookassaFormStatus.textContent='Отправляем карточку заказа и создаём платёж…';
     try{
       const noticeResponse=await fetch(apiUrl('api/send-order'),{
