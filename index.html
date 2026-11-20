@@ -18,7 +18,11 @@
 <meta name="twitter:description" content="Именные брелоки, рельефные шевроны, подарки и изделия по вашей модели.">
 <meta name="twitter:image" content="https://voxel-3d.github.io/assets/og-preview.jpg"><title>Voxel 3D — идеи обретают форму</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%23171916'/%3E%3Cpath d='M12 17h10l10 28 10-28h10L36 52h-8z' fill='%23e9b56b'/%3E%3C/svg%3E">
-<link rel="stylesheet" href="style.css"><script src="app.js?v=cdek-delivery-20261119" defer></script>
+<link rel="stylesheet" href="style.css?v=stl"><script src="app.js?v=stl-orders" defer></script>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
+</script>
+<script type="module" src="stl-viewer.js"></script>
 </head>
 <body>
 <div id="ambient-bg" aria-hidden="true"><div class="ambient-smoke"></div><canvas id="sparks-canvas"></canvas></div>
@@ -117,7 +121,7 @@
 <div class="calc-result"><span>Ориентировочная стоимость</span><output id="calc-total" aria-live="polite">120 ₽</output></div>
 </div>
 <p class="calculator-note" id="calc-note">PETG — базовая цена. Для ABS применяется коэффициент ×1,10, для PLA — ×1,20.</p>
-<a class="button calculator-cta" id="calc-order-link" href="#request">Добавить в заявку <span>↗</span></a>
+<div class="calculator-cta calc-action-row"><a class="button" id="calc-order-link" href="#request">Добавить в заявку <span>↗</span></a><a class="button button-outline" href="#stl-viewer">Подготовить STL <span>↗</span></a></div>
 </div>
 <section class="cdek-panel" id="cdek-delivery" aria-labelledby="cdek-heading">
 <div class="cdek-intro"><span class="eyebrow">ДОСТАВКА</span><h3 id="cdek-heading">Рассчитать доставку СДЭК</h3><p>Выберите город получения и укажите вес упакованного заказа. Размеры можно добавить, если они известны.</p></div>
@@ -134,7 +138,78 @@
 <section id="process" class="section wrap"><div class="section-heading"><div><div class="eyebrow">05 / ОТ ИДЕИ К ПРЕДМЕТУ</div><h2>Начинается с вашей задачи</h2></div></div><div class="steps"><article><span>01</span><h3>Расскажите об идее</h3><p>Что нужно сделать, для чего и в каком количестве. Пригодятся фото, эскиз или готовая 3D-модель.</p></article><article><span>02</span><h3>Согласуем детали</h3><p>Уточним размеры, цвет и надпись. Стоимость и срок определим после обсуждения задачи.</p></article><article><span>03</span><h3>Придадим форму</h3><p>После согласования изготовим изделие. Способ получения обсудим при оформлении заказа.</p></article></div><a class="button process-cta" href="#request">Оставить заявку <span>→</span></a><div class="packing-proof"><div class="packing-heading"><div><span class="eyebrow">ПЕРЕД ОТПРАВКОЙ</span><h3 id="packing-title">Проверяем и бережно упаковываем</h3></div><p>Готовые изделия защищаем перед передачей в СДЭК. На фото — реальная упаковка заказов мастерской.</p></div><div class="packing-gallery"><figure class="packing-card"><button class="packing-image" data-image="images/process-pack.jpg" data-title="Готовый заказ: защитная упаковка и маркировка"><img src="images/process-pack.jpg" alt="Готовые изделия в зип-пакете и пузырчатой защитной упаковке перед отправкой" loading="lazy"><span class="zoom">↗</span></button><figcaption><strong>Защита каждой детали</strong><span>Пакет и дополнительная амортизация помогают уберечь изделие в дороге.</span></figcaption></figure><figure class="packing-card"><button class="packing-image" data-image="images/process-box.jpg" data-title="Партия готовых изделий перед упаковкой"><img src="images/process-box.jpg" alt="Партия разноцветных 3D-печатных изделий в коробке перед упаковкой" loading="lazy"><span class="zoom">↗</span></button><figcaption><strong>Проверка заказа</strong><span>Перед отправкой сверяем готовые изделия и собираем заказ в коробку.</span></figcaption></figure></div></div></section>
 
 
-<section id="request" class="request section"><div class="wrap request-grid"><div><div class="eyebrow">06 / ОФОРМИТЬ ЗАКАЗ</div><h2>Что напечатаем<br><em>для вас?</em></h2><p>Заполните задачу и контакт для связи — заявка сразу уйдёт в мастерскую.</p></div><form id="brief-form"><label for="type">Что хотите сделать?</label><select id="type" name="type" required><option>Именной шеврон</option><option>Брелок</option><option>Подарок</option><option>Предмет для дома</option><option>Печать по моей модели</option><option>Другая идея</option></select><div class="form-row"><div><label for="qty">Количество</label><input id="qty" name="qty" type="number" value="1" min="1" max="10000" required></div><div><label for="color">Желаемый цвет</label><input id="color" name="color" placeholder="Например, олива + чёрный" maxlength="120"></div></div><label for="contact">Контакт для связи (телефон, Telegram или e-mail)</label><input id="contact" name="contact" type="text" maxlength="254" autocomplete="off" placeholder="+7 900 000-00-00 / @username / name@example.com" required><label for="details">Расскажите о задаче</label><textarea id="details" name="details" placeholder="Размер, надпись, особенности или описание вашей идеи…" rows="4" maxlength="2000" required></textarea><fieldset class="prepay-box"><legend>Оплата через ЮKassa</legend><p>Выберите формат оплаты. Для точной сметы сумма подставится автоматически; согласованную стоимость можно указать вручную.</p><div class="payment-mode-options" role="radiogroup" aria-label="Формат оплаты"><label class="payment-mode-option"><input type="radio" name="payment-mode-main" value="50" checked><span><strong>Предоплата 50%</strong><small>Для запуска заказа в печать</small></span></label><label class="payment-mode-option"><input type="radio" name="payment-mode-main" value="100"><span><strong>Полная оплата 100%</strong><small>Оплатить весь заказ сразу</small></span></label></div><div class="form-row"><div><label for="payment-amount">Полная стоимость заказа, ₽</label><input id="payment-amount" type="number" min="1" max="300000" step="1" inputmode="numeric" placeholder="Введите согласованную сумму" aria-describedby="payment-base-hint payment-mode-summary"></div><div><label for="payment-email">E-mail для чека</label><input id="payment-email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com" required aria-describedby="payment-status"></div></div><p id="payment-base-hint" class="payment-base-hint">Укажите согласованную стоимость заказа. Если вы использовали калькулятор, итог появится здесь автоматически.</p><p id="payment-mode-summary" class="payment-mode-summary" aria-live="polite"></p><button id="create-payment" type="button" class="button">Онлайн через ЮKassa (Карта / СБП) <span>↗</span></button><p id="payment-status" class="form-note" role="status" aria-live="polite"></p></fieldset><div class="legal-consent"><input id="legal-consent" name="legal_consent" type="checkbox" aria-label="Я принимаю условия Публичной оферты и даю согласие на обработку персональных данных" required><p>Я принимаю условия <button type="button" class="legal-inline-button" data-legal-dialog="offer-dialog">Публичной оферты</button> и даю согласие на <button type="button" class="legal-inline-button" data-legal-dialog="privacy-dialog">обработку персональных данных</button></p></div><button type="submit" class="button">Отправить заявку <span>→</span></button><p id="order-status" class="form-note order-status" role="status" aria-live="polite"></p><p class="form-note">Заявка сразу отправится в мастерскую — свяжемся с вами для подтверждения деталей.</p><div id="brief-result" hidden><label for="brief-text">Ваш запрос готов</label><textarea id="brief-text" rows="7" readonly></textarea><button id="copy-brief" class="text-link" type="button">Скопировать текст →</button><p id="copy-status" role="status"></p></div></form></div></section>
+<section id="stl-viewer" class="section wrap stl-viewer" aria-labelledby="stl-heading">
+  <div class="section-heading">
+    <div><h2 id="stl-heading">Онлайн-просмотр и подготовка <em>3D-модели (.STL)</em></h2></div>
+    <p>Загрузите STL, настройте размеры и передайте готовую модель в заявку.</p>
+  </div>
+  <div class="stl-layout">
+    <div class="stl-preview">
+      <div class="stl-drop" id="stl-drop">
+        <input id="stl-file" type="file" accept=".stl,model/stl">
+        <label class="button button-outline" for="stl-file">Выбрать STL</label>
+        <span>Или перетащите файл сюда. Модель до 50 МБ обрабатывается в браузере.</span>
+      </div>
+      <div id="stl-stage" class="stl-stage" aria-label="Предпросмотр STL на печатном столе">
+        <p id="stl-placeholder">Загрузите STL, чтобы увидеть модель на столе.</p>
+        <span class="stl-bed-label">Стол 250 × 250 мм · шаг сетки 10 мм</span>
+      </div>
+      <fieldset id="stl-view-options" class="stl-controls" disabled>
+        <div><label for="stl-color">Цвет предпросмотра</label><select id="stl-color">
+          <option value="black">Чёрный матовый</option><option value="gold" selected>Золотой</option>
+          <option value="olive">Оливковый</option><option value="gray">Серый</option><option value="white">Белый</option>
+        </select></div>
+        <label class="stl-check"><input id="stl-wire" type="checkbox"> Сетка полигонов (Wireframe)</label>
+        <button class="button button-outline" id="stl-camera" type="button">Сбросить ракурс</button>
+      </fieldset>
+    </div>
+    <div class="stl-panel">
+      <fieldset id="stl-settings" disabled>
+        <legend>Размеры модели</legend>
+        <label for="stl-percent">Масштаб (%)</label>
+        <div class="stl-scale">
+          <input id="stl-range" type="range" min="10" max="500" step="0.1" value="100" aria-label="Масштаб в процентах">
+          <input id="stl-percent" type="number" min="10" max="500" step="any" value="100">
+          <button id="stl-reset" type="button" class="button button-outline">Сбросить 100%</button>
+        </div>
+        <p class="stl-note">Общий масштаб применяется к исходным пропорциям. Размеры можно менять отдельно по осям.</p>
+        <label class="stl-check"><input id="stl-lock" type="checkbox" checked> Сохранять пропорции</label>
+        <div class="stl-dimensions">
+          <label for="stl-x">Длина (X, мм)<input id="stl-x" type="number" step="any" inputmode="decimal"></label>
+          <label for="stl-y">Ширина (Y, мм)<input id="stl-y" type="number" step="any" inputmode="decimal"></label>
+          <label for="stl-z">Высота (Z, мм)<input id="stl-z" type="number" step="any" inputmode="decimal"></label>
+        </div>
+        <p class="stl-warning" id="stl-size-warning" hidden>Модель превышает 250 мм — изготовим составной конструкцией с аккуратной склейкой.</p>
+        <div class="stl-print-options">
+          <div><label for="stl-material">Материал</label><select id="stl-material"><option>PETG</option><option>PLA</option><option>ABS</option></select></div>
+          <div><label for="stl-infill">Заполнение</label><select id="stl-infill">
+            <option value="15">15% — декор</option><option value="25" selected>25% — стандарт</option>
+            <option value="50">50% — усиленная</option><option value="100">100% — монолит</option>
+          </select></div>
+        </div>
+      </fieldset>
+      <dl class="stl-metrics">
+        <div><dt>Габариты (X × Y × Z, мм)</dt><dd id="stl-size">—</dd></div>
+        <div><dt>Объём, см³</dt><dd id="stl-volume">—</dd></div>
+        <div><dt>Примерный вес печати</dt><dd id="stl-weight">—</dd></div>
+      </dl>
+      <p class="stl-note">STL не хранит единицы измерения. Координаты считаются миллиметрами. Вес оценивается для закрытой модели без учёта стенок и поддержек.</p>
+      <div class="stl-actions">
+        <button class="button" id="stl-order" type="button" disabled>Отправить эту модель в заказ →</button>
+        <button class="button button-outline" id="stl-download" type="button" disabled>Скачать изменённый .STL</button>
+      </div>
+      <p id="stl-status" class="stl-status" role="status" aria-live="polite"></p>
+      <p id="stl-manual" class="stl-note" hidden>Скачайте готовый STL и отправьте его мастерской через <a href="https://max.ru/channel_VOXEL3D" target="_blank" rel="noopener noreferrer">MAX</a> или <a href="#request">перейдите к заявке</a>, чтобы отправить параметры.</p>
+    </div>
+  </div>
+</section>
+
+<section id="request" class="request section"><div class="wrap request-grid"><div><div class="eyebrow">06 / ОФОРМИТЬ ЗАКАЗ</div><h2>Что напечатаем<br><em>для вас?</em></h2><p>Заполните задачу и контакт для связи — заявка сразу уйдёт в мастерскую.</p></div><form id="brief-form"><label for="type">Что хотите сделать?</label><select id="type" name="type" required><option>Именной шеврон</option><option>Брелок</option><option>Подарок</option><option>Предмет для дома</option><option>Печать по моей модели</option><option>Другая идея</option></select><div class="form-row"><div><label for="qty">Количество</label><input id="qty" name="qty" type="number" value="1" min="1" max="10000" required></div><div><label for="color">Желаемый цвет</label><input id="color" name="color" placeholder="Например, олива + чёрный" maxlength="120"></div></div><label for="contact">Контакт для связи (телефон, Telegram или e-mail)</label><input id="contact" name="contact" type="text" maxlength="254" autocomplete="off" placeholder="+7 900 000-00-00 / @username / name@example.com" required><label for="details">Расскажите о задаче</label><textarea id="details" name="details" placeholder="Размер, надпись, особенности или описание вашей идеи…" rows="4" maxlength="2000" required></textarea><div id="order-stl" class="order-stl" hidden>
+  <input id="order-stl-file" name="model_file" type="file" accept=".stl" hidden>
+  <p id="order-stl-name" class="form-note"></p>
+  <button id="order-stl-download" class="button button-outline" type="button">Скачать STL</button>
+  <button id="order-stl-remove" class="button button-outline" type="button">Убрать файл</button>
+</div><fieldset class="prepay-box"><legend>Оплата через ЮKassa</legend><p>Выберите формат оплаты. Для точной сметы сумма подставится автоматически; согласованную стоимость можно указать вручную.</p><div class="payment-mode-options" role="radiogroup" aria-label="Формат оплаты"><label class="payment-mode-option"><input type="radio" name="payment-mode-main" value="50" checked><span><strong>Предоплата 50%</strong><small>Для запуска заказа в печать</small></span></label><label class="payment-mode-option"><input type="radio" name="payment-mode-main" value="100"><span><strong>Полная оплата 100%</strong><small>Оплатить весь заказ сразу</small></span></label></div><div class="form-row"><div><label for="payment-amount">Полная стоимость заказа, ₽</label><input id="payment-amount" type="number" min="1" max="300000" step="1" inputmode="numeric" placeholder="Введите согласованную сумму" aria-describedby="payment-base-hint payment-mode-summary"></div><div><label for="payment-email">E-mail для чека</label><input id="payment-email" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com" required aria-describedby="payment-status"></div></div><p id="payment-base-hint" class="payment-base-hint">Укажите согласованную стоимость заказа. Если вы использовали калькулятор, итог появится здесь автоматически.</p><p id="payment-mode-summary" class="payment-mode-summary" aria-live="polite"></p><button id="create-payment" type="button" class="button">Онлайн через ЮKassa (Карта / СБП) <span>↗</span></button><p id="payment-status" class="form-note" role="status" aria-live="polite"></p></fieldset><div class="legal-consent"><input id="legal-consent" name="legal_consent" type="checkbox" aria-label="Я принимаю условия Публичной оферты и даю согласие на обработку персональных данных" required><p>Я принимаю условия <button type="button" class="legal-inline-button" data-legal-dialog="offer-dialog">Публичной оферты</button> и даю согласие на <button type="button" class="legal-inline-button" data-legal-dialog="privacy-dialog">обработку персональных данных</button></p></div><button type="submit" class="button">Отправить заявку <span>→</span></button><p id="order-status" class="form-note order-status" role="status" aria-live="polite"></p><p class="form-note">Заявка сразу отправится в мастерскую — свяжемся с вами для подтверждения деталей.</p><div id="brief-result" hidden><label for="brief-text">Ваш запрос готов</label><textarea id="brief-text" rows="7" readonly></textarea><button id="copy-brief" class="text-link" type="button">Скопировать текст →</button><p id="copy-status" role="status"></p></div></form></div></section>
 </main>
 <dialog id="yookassa-dialog" class="legal-dialog payment-dialog" aria-labelledby="yookassa-title"><div class="legal-dialog-head"><span class="eyebrow">ОПЛАТА / ЮKASSA</span><button class="legal-close" type="button" aria-label="Закрыть форму оплаты">✕</button></div><h2 id="yookassa-title">Оплата заказа</h2><p class="payment-dialog-note">Выберите предоплату или полную оплату. Сумма рассчитана от полной стоимости заказа.</p><form id="yookassa-pay-form" class="checkout-payment-form"><div class="payment-mode-options payment-mode-options-modal" role="radiogroup" aria-label="Формат оплаты"><label class="payment-mode-option"><input type="radio" name="payment-mode-dialog" value="50" checked><span><strong>Предоплата 50%</strong><small>Остаток перед отправкой</small></span></label><label class="payment-mode-option"><input type="radio" name="payment-mode-dialog" value="100"><span><strong>Полная оплата 100%</strong><small>Оплатить весь заказ сразу</small></span></label></div><label for="yk-sum-input">Сумма к оплате, ₽</label><input id="yk-sum-input" type="number" min="1" max="300000" step="1" readonly required><p id="yk-order-total" class="payment-order-summary"></p><p id="yk-amount-summary" class="payment-amount-summary" aria-live="polite"></p><p id="yk-order-summary" class="payment-order-summary"></p><button id="yk-payment-submit" class="button checkout-payment-submit" type="submit">Оплатить заказ <span>→</span></button></form><p id="yookassa-form-status" class="form-note" role="status" aria-live="polite"></p><p class="payment-security-note">Безопасная оплата картой или через СБП • Чек самозанятого придёт на ваш e-mail</p></dialog>
 <form id="yk-hosted-pay-form" action="https://yookassa.ru/integration/simplepay/payment" method="post" accept-charset="utf-8" hidden>
