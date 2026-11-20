@@ -31,7 +31,8 @@ const PLASTIC_FINISHES = {
   red: { color: 0xc92a2a },
   olive: { color: 0x556b2f },
   coyote: { color: 0x8b7355 },
-  ultramarine: { color: 0x1b3f8b, transparent: true, opacity: .72, roughness: .2 },
+  ultramarine: { color: 0x1b3f8b },
+  translucent: { color: 0xf2f2f2, transparent: true, opacity: .72, roughness: .2 },
   green: { color: 0x2ecc40 },
   marble: { color: 0xe6e4df, marble: true }
 };
