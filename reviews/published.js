@@ -4,8 +4,9 @@ const listStatus = document.getElementById('review-list-status');
 const endpoint = 'https://voxel-3d-reviews-api.satinhyacinth.chatgpt.site';
 const more = document.getElementById('review-more');
 let cursor = null;
+const dateFormat = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeZone: 'Europe/Moscow' });
 
-function renderReview({ id, name, rating, text, hasPhoto }) {
+function renderReview({ id, name, rating, text, hasPhoto, createdAt }) {
   const card = document.createElement('article');
   card.className = 'review-card';
 
@@ -18,7 +19,16 @@ function renderReview({ id, name, rating, text, hasPhoto }) {
   const quote = document.createElement('blockquote');
   quote.textContent = text;
 
-  card.append(title, stars, quote);
+  card.append(title);
+  const writtenAt = new Date(createdAt);
+  if (Number.isFinite(writtenAt.getTime())) {
+    const date = document.createElement('time');
+    date.className = 'published-review-date';
+    date.dateTime = createdAt;
+    date.textContent = dateFormat.format(writtenAt);
+    card.append(date);
+  }
+  card.append(stars, quote);
   if (hasPhoto && /^\d{13}-[0-9a-f-]{36}$/.test(id)) {
     const link = document.createElement('a');
     link.className = 'published-review-photo';
