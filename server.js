@@ -374,7 +374,7 @@ async function notifyTelegram(payment) {
   if (!token || !chatId) return;
   const amount = payment.amount?.value ? `${payment.amount.value} ${payment.amount.currency || "RUB"}` : "сумма неизвестна";
   const lines = [
-    "✅ Оплата Voxel 3D подтверждена",
+    "✅ Оплата DEXEL 3D подтверждена",
     `Платёж: ${String(payment.id || "").slice(0, 48)}`,
     `Сумма: ${amount}`,
     `Заказ: ${String(payment.description || "").slice(0, 128)}`,
@@ -431,5 +431,5 @@ app.use((err, _req, res, _next) => {
 });
 
 app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Voxel 3D server listening on port ${PORT}`);
+  console.log(`DEXEL 3D server listening on port ${PORT}`);
 });

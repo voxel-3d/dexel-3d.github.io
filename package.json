@@ -2,7 +2,7 @@
   "name": "voxel3d-render-site",
   "version": "1.0.0",
   "private": true,
-  "description": "Voxel 3D website with CDEK delivery calculator and YooKassa payments",
+  "description": "DEXEL 3D website with CDEK delivery calculator and YooKassa payments",
   "engines": { "node": ">=22" },
   "scripts": { "start": "node server.js" },
   "dependencies": {
