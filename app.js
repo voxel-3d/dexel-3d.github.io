@@ -96,6 +96,93 @@ const briefForm=document.getElementById('brief-form');
 const orderContact=document.getElementById('contact');
 const orderStatus=document.getElementById('order-status');
 const orderSubmitButton=briefForm.querySelector('button[type="submit"]');
+const orderModelInput=document.getElementById('order-stl-file');
+const orderModelPanel=document.getElementById('order-stl');
+const orderModelName=document.getElementById('order-stl-name');
+const ORDER_MODEL_URL='https://voxel-3d-reviews-api.satinhyacinth.chatgpt.site/order-models';
+const ORDER_MODEL_LIMIT=15*1024*1024;
+let attachedModel=null;
+let modelSummary='';
+let uploadedModel=null;
+
+function removeOrderModel(){
+  orderModelInput.value='';
+  orderModelPanel.hidden=true;
+  attachedModel=null;
+  uploadedModel=null;
+}
+
+briefForm.addEventListener('voxel:prepare-stl',event=>{
+  const prepared=event.detail;
+  if(orderSubmitButton.disabled){
+    prepared.error='Заявка уже отправляется. Дождитесь завершения и добавьте модель снова.';
+    return;
+  }
+  const details=document.getElementById('details');
+  const previous=details.value.trim();
+  const remaining=modelSummary&&previous.startsWith(modelSummary)
+    ? previous.slice(modelSummary.length).trim()
+    : previous;
+  const summary=prepared.summary;
+  const next=[summary,remaining].filter(Boolean).join('\n\n');
+  if(next.length>details.maxLength){
+    prepared.error='В заявке не хватает места для параметров модели. Сократите описание и попробуйте снова.';
+    return;
+  }
+
+  removeOrderModel();
+  details.value=next;
+  modelSummary=summary;
+  details.setCustomValidity('');
+  const orderType=document.getElementById('type');
+  if(orderType.value!=='Печать по моей модели'){
+    orderType.value='Печать по моей модели';
+    orderType.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  if(prepared.file.size>ORDER_MODEL_LIMIT){
+    prepared.error='STL больше 15 МБ. Параметры добавлены в заявку. Файл можно отправить отдельно.';
+    return;
+  }
+  try{
+    const transfer=new DataTransfer();
+    transfer.items.add(prepared.file);
+    orderModelInput.files=transfer.files;
+    if(!orderModelInput.files.length)throw new Error();
+  }catch{
+    prepared.error='Браузер не смог прикрепить STL. Параметры добавлены в заявку. Скачайте файл для ручной отправки.';
+    return;
+  }
+  attachedModel=prepared.file;
+  orderModelName.textContent=prepared.file.name+' · '+(prepared.file.size/1024/1024).toFixed(2)+' МБ · загрузится при отправке заявки';
+  orderModelPanel.hidden=false;
+  prepared.attached=true;
+});
+
+document.getElementById('order-stl-remove').addEventListener('click',removeOrderModel);
+document.getElementById('order-stl-download').addEventListener('click',()=>{
+  if(!attachedModel)return;
+  const url=URL.createObjectURL(attachedModel);
+  const link=document.createElement('a');
+  link.href=url;
+  link.download=attachedModel.name;
+  link.click();
+  setTimeout(()=>URL.revokeObjectURL(url),30000);
+});
+
+async function uploadOrderModel(file){
+  if(uploadedModel?.file===file)return uploadedModel.url;
+  const body=new FormData();
+  body.set('file',file,file.name);
+  const response=await fetch(ORDER_MODEL_URL,{method:'POST',body});
+  const data=await response.json().catch(()=>null);
+  const url=data?.url;
+  if(!response.ok||typeof url!=='string'||!url.startsWith(ORDER_MODEL_URL+'/')){
+    throw new Error('Не удалось загрузить STL. '+(data?.error||'Попробуйте ещё раз или скачайте файл для отправки через MAX.'));
+  }
+  uploadedModel={file,url};
+  return url;
+}
+
 briefForm.addEventListener('submit',async event=>{
   event.preventDefault();
   const consent=document.getElementById('legal-consent');
@@ -122,6 +209,12 @@ briefForm.addEventListener('submit',async event=>{
   const color=String(formData.get('color')||'').trim();
   const description=String(formData.get('details')||'').trim();
   const contact=String(formData.get('contact')||'').trim();
+  const modelFile=attachedModel;
+  if(modelFile&&description.length>1800){
+    detailsField.setCustomValidity('Сократите описание до 1800 символов, чтобы добавить ссылку на STL.');
+    detailsField.reportValidity();
+    return;
+  }
   const estimateText=calcTotal.textContent||'';
   const estimateValue=Number(estimateText.replace(/[^\d]/g,''));
   const total=calculatorApplied&&estimateValue>0
@@ -151,7 +244,7 @@ briefForm.addEventListener('submit',async event=>{
   }
   if(total!==null)lines.push('Ориентировочная итоговая сумма: '+rubles.format(total)+' ₽');
   lines.push('Подскажите, пожалуйста, срок изготовления.');
-  const manualText=lines.join('\n');
+  let modelLink='';
 
   const originalButtonMarkup=orderSubmitButton.innerHTML;
   orderSubmitButton.disabled=true;
@@ -159,6 +252,12 @@ briefForm.addEventListener('submit',async event=>{
   orderStatus.textContent='Отправляем заявку в мастерскую…';
   orderStatus.className='form-note order-status';
   try{
+    if(modelFile){
+      orderStatus.textContent='Загружаем STL…';
+      modelLink=await uploadOrderModel(modelFile);
+      payload.description='Скачать STL (ссылка действует 14 дней): '+modelLink+'\n\n'+description;
+      orderStatus.textContent='STL загружен. Отправляем заявку в мастерскую…';
+    }
     const response=await fetch(apiUrl('api/send-order'),{
       method:'POST',
       headers:{'content-type':'application/json','accept':'application/json'},
@@ -178,7 +277,9 @@ briefForm.addEventListener('submit',async event=>{
       : (error.message||'Не удалось отправить заявку. Скопируйте текст и отправьте его вручную.');
     orderStatus.textContent=message;
     orderStatus.className='form-note order-status is-error';
-    document.getElementById('brief-text').value=manualText;
+    document.getElementById('brief-text').value=[...lines,
+      modelLink?'STL: '+modelLink:modelFile?'Файл STL отправлю отдельно.':''
+    ].filter(Boolean).join('\n');
     document.getElementById('brief-result').hidden=false;
     document.getElementById('copy-status').textContent='Заявку можно отправить вручную по этому тексту.';
   }finally{

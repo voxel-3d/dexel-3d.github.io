@@ -345,3 +345,54 @@ dialog.payment-dialog::backdrop{background:rgba(0,0,0,.78);backdrop-filter:blur(
 .checkout-payment-form input[readonly]{cursor:default;background:#10110f;color:var(--accent);font-size:30px}
 .payment-dialog .payment-amount-summary{margin:0;color:var(--accent);font-size:14px;font-weight:800;line-height:1.5}
 @media(max-width:700px){.prepay-box .payment-mode-options,.checkout-payment-form .payment-mode-options-modal{grid-template-columns:1fr}.payment-mode-option{padding:12px}.payment-mode-option small{font-size:11px}.checkout-payment-form .payment-mode-option strong{font-size:13px}.checkout-payment-form .payment-mode-option small{font-size:10px}}
+
+.calc-action-row { display:flex; flex-wrap:wrap; gap:10px; }
+.stl-viewer { --stl-line: rgba(232, 174, 69, .23); }
+.stl-layout { display:grid; grid-template-columns:minmax(0,1.35fr) minmax(0,1fr); gap:20px; align-items:start; }
+.stl-preview, .stl-panel { min-width:0; border:1px solid var(--stl-line); background:#171712; }
+.stl-panel { padding:22px; }
+.stl-drop, .stl-controls { display:flex; align-items:center; flex-wrap:wrap; gap:12px; padding:14px; }
+.stl-drop { position:relative; border-bottom:1px dashed var(--stl-line); }
+.stl-drop.is-dragging { background:#372b12; border-color:#edbb55; }
+.stl-drop input { position:absolute; width:1px; height:1px; opacity:0; margin:0; }
+.stl-drop input:focus-visible + label { outline:2px solid #edbb55; outline-offset:4px; }
+.stl-drop label { margin:0; cursor:pointer; }
+.stl-drop span, .stl-note { color:var(--muted); font-size:13px; line-height:1.5; }
+.stl-stage { position:relative; display:grid; place-items:center; min-height:320px; height:clamp(320px,46vw,540px); isolation:isolate; overflow:hidden; background:#111112; }
+.stl-stage canvas { position:absolute; inset:0; display:block; width:100%; height:100%; outline-offset:-4px; }
+.stl-stage p { z-index:1; padding:16px; text-align:center; pointer-events:none; }
+.stl-bed-label { z-index:1; position:absolute; bottom:10px; left:10px; padding:4px 8px; background:#141414d9; color:#c6c2b8; font-size:12px; pointer-events:none; }
+.stl-controls, .stl-panel fieldset { margin:0; border:0; min-width:0; }
+.stl-panel fieldset { padding:0; }
+.stl-controls > div { flex:1 1 145px; }
+.stl-controls select, .stl-panel select, .stl-panel input:not([type=checkbox]) { width:100%; margin-bottom:0; }
+.stl-viewer label { font-size:13px; }
+.stl-check { display:flex; gap:8px; align-items:center; margin:12px 0; }
+.stl-check input { width:18px; height:18px; margin:0; accent-color:#edbb55; }
+.stl-panel legend { font-size:18px; font-weight:800; margin-bottom:12px; }
+.stl-scale { display:grid; grid-template-columns:minmax(0,1fr) minmax(76px,.45fr) auto; gap:8px; align-items:center; }
+.stl-scale input[type=range] { padding:0; accent-color:#edbb55; }
+.stl-viewer .button { min-height:42px; padding:9px 12px; }
+.stl-dimensions, .stl-print-options { display:grid; gap:8px; }
+.stl-dimensions { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.stl-print-options { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:12px; }
+.stl-dimensions input { margin-top:5px; }
+.stl-warning { color:#ffcf72; border-left:3px solid #edbb55; padding:7px 10px; font-size:13px; }
+.stl-metrics { display:grid; gap:8px; margin:16px 0; }
+.stl-metrics > div { display:flex; gap:8px; justify-content:space-between; align-items:baseline; border-bottom:1px solid var(--stl-line); padding-bottom:6px; }
+.stl-metrics dt { color:var(--muted); font-size:13px; }
+.stl-metrics dd { margin:0; color:#ffcf72; font-weight:700; text-align:right; }
+.stl-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.stl-viewer button:disabled { cursor:default; opacity:.48; }
+.stl-status { min-height:1.4em; margin:10px 0 0; color:#edd4a2; font-size:13px; }
+.stl-note a { text-decoration:underline; }
+.order-stl { padding:9px 12px; margin-bottom:14px; border:1px solid #aa864f; overflow-wrap:anywhere; }
+.order-stl .button { margin:3px 6px 3px 0; }
+@media (max-width:970px) { .stl-layout { grid-template-columns:minmax(0,1fr); } }
+@media (max-width:480px) {
+  .stl-panel { padding:14px; }
+  .stl-scale { grid-template-columns:minmax(0,1fr) 84px; }
+  .stl-scale button { grid-column:1/-1; justify-self:start; }
+  .stl-dimensions input { padding-inline:7px; }
+  .stl-actions .button { width:100%; }
+}

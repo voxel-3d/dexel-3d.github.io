@@ -59,12 +59,10 @@ function appendReviews(reviews, prepend = false) {
 }
 
 async function loadOldReviews() {
-  const response = await fetch('../published.ndjson', { cache: 'no-cache' });
+  const response = await fetch(endpoint + '/reviews?archive=1', { cache: 'no-store' });
   if (!response.ok) throw new Error('Review archive unavailable');
-  const lines = (await response.text()).split(/\r?\n/).filter(line => line.trim() && !line.startsWith('#'));
-  appendReviews(lines.map(line => {
-    try { return JSON.parse(line); } catch { return null; }
-  }));
+  const data = await response.json();
+  appendReviews(data.reviews);
 }
 
 async function loadNewReviews() {
