@@ -425,3 +425,121 @@ dialog.payment-dialog::backdrop{background:rgba(0,0,0,.78);backdrop-filter:blur(
 @media (max-width: 1150px) and (min-width: 701px) {
   .header:has(.nav-stl-link) nav { gap: clamp(9px, 1.2vw, 17px); flex-wrap: wrap; }
 }
+
+.ammi-partner {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+  align-items: center;
+  gap: clamp(24px, 4vw, 56px);
+  margin-block: clamp(40px, 6vw, 88px);
+  padding: clamp(20px, 4vw, 48px);
+  border: 1px solid var(--line);
+  background: linear-gradient(125deg, rgba(213, 154, 58, .09), transparent 55%), var(--bg);
+}
+
+.ammi-brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.ammi-brand img {
+  flex: none;
+  width: clamp(52px, 6vw, 72px);
+  height: auto;
+  border: 1px solid var(--accent);
+  border-radius: 50%;
+}
+
+.ammi-brand .eyebrow { color: var(--accent); }
+
+.ammi-brand h2 {
+  margin: 6px 0 0;
+  font-size: clamp(25px, 3vw, 38px);
+  letter-spacing: -.025em;
+}
+
+.ammi-brand h2 span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: .58em;
+  letter-spacing: normal;
+}
+
+.ammi-copy p {
+  margin: 18px 0 0;
+  line-height: 1.65;
+}
+
+.ammi-copy .ammi-note {
+  padding-left: 12px;
+  border-left: 1px solid var(--accent);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ammi-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 22px;
+}
+
+.ammi-actions .button {
+  min-height: 44px;
+  padding: 10px 14px;
+  justify-content: center;
+  white-space: nowrap;
+}
+
+.ammi-gallery {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.ammi-gallery a {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 2 / 3;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.ammi-gallery img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transition: transform .35s ease;
+}
+
+@media (hover: hover) {
+  .ammi-gallery a:hover img { transform: scale(1.05); }
+}
+
+.ammi-partner a:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+@media (max-width: 860px) {
+  .ammi-partner { grid-template-columns: minmax(0, 1fr); }
+  .ammi-gallery a { aspect-ratio: 3 / 4; }
+}
+
+@media (max-width: 520px) {
+  .ammi-actions .button:first-child { flex-basis: 100%; }
+  .ammi-actions .button-outline { flex: 1; }
+  .ammi-gallery { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ammi-gallery a:first-child {
+    grid-column: 1 / -1;
+    aspect-ratio: 16 / 10;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ammi-gallery img { transition: none; }
+  .ammi-gallery a:hover img { transform: none; }
+}
