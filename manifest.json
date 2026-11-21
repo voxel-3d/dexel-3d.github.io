@@ -6,7 +6,7 @@
   "start_url": "/",
   "icons": [
     {
-      "src": "/assets/dexel-icon.png",
+      "src": "/assets/dexel-icon.png?v=gold",
       "sizes": "64x64",
       "type": "image/png"
     }
