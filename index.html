@@ -72,7 +72,7 @@ ym(114411857, "init", {
 });
 </script>
 <!-- /Yandex Metrika -->
-<link rel="stylesheet" href="style.css?v=clear-logo"><script src="app.js?v=dexel-3d" defer></script>
+<link rel="stylesheet" href="style.css?v=ammi"><script src="app.js?v=dexel-3d" defer></script>
 <script type="importmap">
 {"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"}}
 </script>
@@ -274,6 +274,35 @@ ym(114411857, "init", {
   <button id="order-stl-download" class="button button-outline" type="button">Скачать STL</button>
   <button id="order-stl-remove" class="button button-outline" type="button">Убрать файл</button>
 </div><fieldset class="prepay-box"><legend>Оплата через ЮKassa</legend><p>Выберите формат оплаты. Для точной сметы сумма подставится автоматически; согласованную стоимость можно указать вручную.</p><div class="payment-mode-options" role="radiogroup" aria-label="Формат оплаты"><label class="payment-mode-option"><input type="radio" name="payment-mode-main" value="50" checked><span><strong>Предоплата 50%</strong><small>Для запуска заказа в печать</small></span></label><label class="payment-mode-option"><input type="radio" name="payment-mode-main" value="100"><span><strong>Полная оплата 100%</strong><small>Оплатить весь заказ сразу</small></span></label></div><div class="form-row"><div><label for="payment-amount">Полная стоимость заказа, ₽</label><input id="payment-amount" type="number" min="1" max="300000" step="1" inputmode="numeric" placeholder="Введите согласованную сумму" aria-describedby="payment-base-hint payment-mode-summary"></div><div><label for="payment-email">E-mail для чека</label><input id="payment-email" class="ym-disable-keys" type="email" maxlength="254" autocomplete="email" placeholder="name@example.com" required aria-describedby="payment-status"></div></div><p id="payment-base-hint" class="payment-base-hint">Укажите согласованную стоимость заказа. Если вы использовали калькулятор, итог появится здесь автоматически.</p><p id="payment-mode-summary" class="payment-mode-summary" aria-live="polite"></p><button id="create-payment" type="button" class="button">Онлайн через ЮKassa (Карта / СБП) <span>↗</span></button><p id="payment-status" class="form-note" role="status" aria-live="polite"></p></fieldset><div class="legal-consent"><input id="legal-consent" name="legal_consent" type="checkbox" aria-label="Я принимаю условия Публичной оферты и даю согласие на обработку персональных данных" required><p>Я принимаю условия <button type="button" class="legal-inline-button" data-legal-dialog="offer-dialog">Публичной оферты</button> и даю согласие на <button type="button" class="legal-inline-button" data-legal-dialog="privacy-dialog">обработку персональных данных</button></p></div><button type="submit" class="button">Отправить заявку <span>→</span></button><p id="order-status" class="form-note order-status" role="status" aria-live="polite"></p><p class="form-note">Заявка сразу отправится в мастерскую — свяжемся с вами для подтверждения деталей.</p><div id="brief-result" hidden><label for="brief-text">Ваш запрос готов</label><textarea id="brief-text" class="ym-disable-keys" rows="7" readonly></textarea><button id="copy-brief" class="text-link" type="button">Скопировать текст →</button><p id="copy-status" role="status"></p></div></form></div></section>
+<section id="partner-ammi" class="wrap ammi-partner" aria-labelledby="ammi-title">
+  <div class="ammi-copy">
+    <div class="ammi-brand">
+      <img src="images/partners/ammi-logo.jpg" width="428" height="428" alt="" loading="lazy" decoding="async">
+      <div>
+        <div class="eyebrow">Партнёр мастерской</div>
+        <h2 id="ammi-title">Ammi <span>— флористика и декор</span></h2>
+      </div>
+    </div>
+    <p>Дополните подарок авторским мини- или макси-букетом из сухоцветов и стабилизированных растений. Ammi также оформляет подарки и создаёт декор для праздников.</p>
+    <p class="ammi-note">Стоимость и наличие композиций уточняются индивидуально у мастера-флориста.</p>
+    <div class="ammi-actions">
+      <a class="button" href="tel:+79182390901" aria-label="Позвонить в Ammi по номеру +7 918 239 09 01">+7 918 239 09 01</a>
+      <a class="button button-outline" href="https://wa.me/79182390901?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%D0%B2%D0%B8%D0%B4%D0%B5%D0%BB%28%D0%B0%29%20%D0%B2%D0%B0%D1%88%D0%B8%20%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D1%8B%20%D0%BD%D0%B0%20%D1%81%D0%B0%D0%B9%D1%82%D0%B5%20DEXEL%203D%2C%20%D1%85%D0%BE%D1%87%D1%83%20%D1%83%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D1%82%D1%8C%20%D1%81%D1%82%D0%BE%D0%B8%D0%BC%D0%BE%D1%81%D1%82%D1%8C" target="_blank" rel="noopener noreferrer" aria-label="Написать в Ammi в WhatsApp (новая вкладка)">WhatsApp</a>
+      <a class="button button-outline" href="https://t.me/+79182390901?text=%D0%97%D0%B4%D1%80%D0%B0%D0%B2%D1%81%D1%82%D0%B2%D1%83%D0%B9%D1%82%D0%B5%21%20%D0%A3%D0%B2%D0%B8%D0%B4%D0%B5%D0%BB%28%D0%B0%29%20%D0%B2%D0%B0%D1%88%D0%B8%20%D1%80%D0%B0%D0%B1%D0%BE%D1%82%D1%8B%20%D0%BD%D0%B0%20%D1%81%D0%B0%D0%B9%D1%82%D0%B5%20DEXEL%203D%2C%20%D1%85%D0%BE%D1%87%D1%83%20%D1%83%D1%82%D0%BE%D1%87%D0%BD%D0%B8%D1%82%D1%8C%20%D1%81%D1%82%D0%BE%D0%B8%D0%BC%D0%BE%D1%81%D1%82%D1%8C" target="_blank" rel="noopener noreferrer" aria-label="Написать в Ammi в Telegram (новая вкладка)">Telegram</a>
+    </div>
+  </div>
+  <div class="ammi-gallery" role="group" aria-label="Работы Ammi">
+    <a href="images/partners/ammi-1.webp" target="_blank" rel="noopener noreferrer" aria-label="Открыть фото мини-букета (новая вкладка)">
+      <img src="images/partners/ammi-1.webp" width="208" height="313" alt="Праздничный мини-букет в крафтовой упаковке" loading="lazy" decoding="async">
+    </a>
+    <a href="images/partners/ammi-2.webp" target="_blank" rel="noopener noreferrer" aria-label="Открыть фото подарочного оформления (новая вкладка)">
+      <img src="images/partners/ammi-2.webp" width="198" height="313" alt="Подарочные пакеты с лентами и сухоцветами" loading="lazy" decoding="async">
+    </a>
+    <a href="images/partners/ammi-3.webp" target="_blank" rel="noopener noreferrer" aria-label="Открыть фото венка (новая вкладка)">
+      <img src="images/partners/ammi-3.webp" width="263" height="339" alt="Венок из сухоцветов с жёлтой лентой" loading="lazy" decoding="async">
+    </a>
+  </div>
+</section>
 </main>
 <dialog id="yookassa-dialog" class="legal-dialog payment-dialog" aria-labelledby="yookassa-title"><div class="legal-dialog-head"><span class="eyebrow">ОПЛАТА / ЮKASSA</span><button class="legal-close" type="button" aria-label="Закрыть форму оплаты">✕</button></div><h2 id="yookassa-title">Оплата заказа</h2><p class="payment-dialog-note">Выберите предоплату или полную оплату. Сумма рассчитана от полной стоимости заказа.</p><form id="yookassa-pay-form" class="checkout-payment-form"><div class="payment-mode-options payment-mode-options-modal" role="radiogroup" aria-label="Формат оплаты"><label class="payment-mode-option"><input type="radio" name="payment-mode-dialog" value="50" checked><span><strong>Предоплата 50%</strong><small>Остаток перед отправкой</small></span></label><label class="payment-mode-option"><input type="radio" name="payment-mode-dialog" value="100"><span><strong>Полная оплата 100%</strong><small>Оплатить весь заказ сразу</small></span></label></div><label for="yk-sum-input">Сумма к оплате, ₽</label><input id="yk-sum-input" type="number" min="1" max="300000" step="1" readonly required><p id="yk-order-total" class="payment-order-summary"></p><p id="yk-amount-summary" class="payment-amount-summary" aria-live="polite"></p><p id="yk-order-summary" class="payment-order-summary"></p><button id="yk-payment-submit" class="button checkout-payment-submit" type="submit">Оплатить заказ <span>→</span></button></form><p id="yookassa-form-status" class="form-note" role="status" aria-live="polite"></p><p class="payment-security-note">Безопасная оплата картой или через СБП • Чек самозанятого придёт на ваш e-mail</p></dialog>
 <form id="yk-hosted-pay-form" action="https://yookassa.ru/integration/simplepay/payment" method="post" accept-charset="utf-8" hidden>
