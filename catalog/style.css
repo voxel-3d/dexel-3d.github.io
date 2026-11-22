@@ -395,7 +395,6 @@
 .catalog-card-actions .catalog-share { grid-column: 1 / -1; }
 .model-specs { display: grid; gap: 4px; font-size: .9rem; margin: 0 0 16px; }
 .model-specs:empty { display: none; }
-.model-specs strong { color: var(--accent); }
 .model-details { padding: 0 clamp(14px, 3vw, 24px) 22px; }
 .display-options { padding-bottom: 16px; }
 .display-options label { display: inline-flex; align-items: center; gap: 6px; }
