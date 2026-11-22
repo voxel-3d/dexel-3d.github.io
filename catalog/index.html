@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0c0c0d">
+  <meta name="description" content="Каталог демонстрационных 3D-моделей DEXEL 3D. Вращайте и приближайте модели прямо в браузере.">
+  <title>Каталог 3D-моделей — DEXEL 3D</title>
+  <link rel="canonical" href="https://dexel3d.ru/catalog/">
+  <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
+  <link rel="stylesheet" href="../style.css?v=questions">
+  <link rel="stylesheet" href="catalog.css">
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="catalog.js"></script>
+</head>
+<body class="catalog-page">
+  <a class="skip" href="#main">К содержимому</a>
+  <header class="catalog-header">
+    <div class="wrap catalog-header-inner">
+      <a class="catalog-brand" href="../" aria-label="DEXEL 3D, на главную">
+        <img src="../assets/dexel-logo-clear.webp?v=gold" width="384" height="461" alt="">
+        <span>DEXEL <strong>3D</strong></span>
+      </a>
+      <nav aria-label="Навигация каталога">
+        <a href="../">На главную</a>
+        <a class="catalog-header-link" href="../#stl-viewer">Открыть свой STL <span aria-hidden="true">↗</span></a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap catalog-main" id="main">
+    <section aria-labelledby="catalog-title">
+      <div class="catalog-heading">
+        <h1 id="catalog-title">Каталог <em>3D-моделей</em></h1>
+        <p>Рассмотрите демонстрационные модели со всех сторон. Нажмите «Смотреть в 3D», чтобы повернуть объект и приблизить детали.</p>
+      </div>
+      <noscript><p class="catalog-noscript">Включите JavaScript для интерактивного просмотра 3D. Превью доступны ниже.</p></noscript>
+      <div class="catalog-grid">
+        <article class="catalog-card">
+          <img class="catalog-card-image" src="assets/ribbed-vase.webp" width="768" height="600" alt="Тёплая песочная ваза с вертикальными рёбрами" fetchpriority="high" decoding="async">
+          <div class="catalog-card-body">
+            <h2>Рельефная ваза</h2>
+            <p>Мягкий силуэт и ритм вертикальных рёбер для сухоцветов.</p>
+            <button class="catalog-card-button" type="button" aria-haspopup="dialog" data-model="assets/ribbed-vase.glb">Смотреть в 3D <span aria-hidden="true">↗</span></button>
+          </div>
+        </article>
+
+        <article class="catalog-card">
+          <img class="catalog-card-image" src="assets/phone-stand.webp" width="768" height="600" alt="Синяя подставка с наклонной опорой и нижним упором" decoding="async">
+          <div class="catalog-card-body">
+            <h2>Подставка для телефона</h2>
+            <p>Наклонная опора с нижним упором для рабочего стола.</p>
+            <button class="catalog-card-button" type="button" aria-haspopup="dialog" data-model="assets/phone-stand.glb">Смотреть в 3D <span aria-hidden="true">↗</span></button>
+          </div>
+        </article>
+
+        <article class="catalog-card">
+          <img class="catalog-card-image" src="assets/hex-organizer.webp" width="768" height="600" alt="Оливковый шестигранный лоток со ступенчатыми стенками" decoding="async">
+          <div class="catalog-card-body">
+            <h2>Шестигранный органайзер</h2>
+            <p>Открытый лоток для ключей, крепежа и мелочей.</p>
+            <button class="catalog-card-button" type="button" aria-haspopup="dialog" data-model="assets/hex-organizer.glb">Смотреть в 3D <span aria-hidden="true">↗</span></button>
+          </div>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer class="wrap catalog-footer">
+    <a href="../">Мастерская DEXEL 3D</a>
+    <a href="../#request">Обсудить печать модели <span aria-hidden="true">↗</span></a>
+  </footer>
+
+  <dialog id="model-dialog" class="model-dialog" aria-labelledby="model-title">
+    <header class="model-header">
+      <div>
+        <h2 id="model-title">Просмотр модели</h2>
+        <p id="model-description"></p>
+      </div>
+      <form method="dialog">
+        <button class="model-close" type="submit" aria-label="Закрыть 3D-просмотр" autofocus>×</button>
+      </form>
+    </header>
+    <div id="model-stage" class="model-stage" aria-describedby="model-help">
+      <img id="model-preview" alt="" hidden>
+      <p id="model-status" role="status"></p>
+    </div>
+    <div class="model-footer">
+      <p id="model-help">Перетаскивайте модель, чтобы вращать. Колесо мыши или щипок меняет масштаб. С клавиатуры используйте стрелки, «+» и «−».</p>
+      <div class="model-actions" role="group" aria-label="Управление камерой">
+        <button type="button" data-view-action="out" aria-label="Отдалить" disabled>−</button>
+        <button type="button" data-view-action="in" aria-label="Приблизить" disabled>+</button>
+        <button type="button" data-view-action="reset" disabled>Сбросить ракурс</button>
+      </div>
+    </div>
+  </dialog>
+</body>
+</html>
