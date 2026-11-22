@@ -1,3 +1,7 @@
+// Use the project URL and a public publishable (or legacy anon) key from Supabase.
+const SUPABASE_URL = '';
+const SUPABASE_ANON_KEY = '';
+
 // Add public STL entries here. Version the file URL when replacing an existing STL.
 const publishedModels = [
   {
@@ -94,9 +98,10 @@ async function selectRenderer(THREE, preserveDrawingBuffer = false) {
   return renderer;
 }
 
-function modelDirection(THREE) {
-  const elevation = THREE.MathUtils.degToRad(40);
-  return new THREE.Vector3(Math.cos(elevation) / Math.SQRT2, Math.sin(elevation), Math.cos(elevation) / Math.SQRT2);
+function modelDirection(THREE, azimuth = 45, elevation = 40) {
+  const yaw = THREE.MathUtils.degToRad(azimuth);
+  const pitch = THREE.MathUtils.degToRad(elevation);
+  return new THREE.Vector3(Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw));
 }
 
 async function loadSTL(THREE, STLLoader, entry, signal) {
@@ -194,7 +199,7 @@ async function renderCover(entry) {
   try {
     const scene = studioScene(THREE, renderer, model);
     const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 12);
-    camera.position.copy(modelDirection(THREE)).multiplyScalar(4);
+    camera.position.copy(modelDirection(THREE, entry.azimuth, entry.elevation)).multiplyScalar(4);
     camera.lookAt(0, 0, 0);
     camera.updateMatrixWorld();
 
@@ -465,13 +470,23 @@ function addCard(entry, first = false) {
   const cover = entry.cover || entry.placeholder;
   if (cover) image.src = cover;
   card.querySelector('h2').textContent = entry.title;
-  card.querySelector('p').textContent = entry.description;
-  card.querySelector('button').addEventListener('click', () => openModel(entry));
+  card.querySelector('.catalog-card-description').textContent = entry.description;
+  const meta = card.querySelector('.catalog-card-meta');
+  meta.textContent = describeModel(entry);
+  card.querySelector('button').addEventListener('click', () => {
+    openModel(entry);
+    logModelEvent(entry, 'view', meta);
+  });
 
   const download = card.querySelector('.catalogue-download');
-  const fileName = entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
+  const fileName = entry.remote
+    ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.stl'
+    : entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
   download.download = fileName;
-  if (entry.downloadUrl || entry.fileUrl) {
+  if (entry.remote) {
+    download.href = cloudFile(entry.remote.stl_path, fileName);
+    download.addEventListener('click', () => logModelEvent(entry, 'download', meta));
+  } else if (entry.downloadUrl || entry.fileUrl) {
     download.href = entry.downloadUrl || entry.fileUrl;
     if (entry.downloadUrl) {
       download.target = '_blank';
@@ -481,138 +496,22 @@ function addCard(entry, first = false) {
     download.href = URL.createObjectURL(entry.file);
   }
   const params = new URLSearchParams({ model: entry.title });
-  card.querySelector('.catalog-order').href = '../#request?' + params.toString();
+  const order = card.querySelector('.catalog-order');
+  order.href = '../#request?' + params.toString();
+  if (entry.remote) {
+    order.addEventListener('click', async event => {
+      const recorded = logModelEvent(entry, 'order', meta);
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+      event.preventDefault();
+      await Promise.race([recorded, new Promise(resolve => setTimeout(resolve, 1000))]);
+      window.location.assign(order.href);
+    });
+    card.dataset.cloudModel = entry.id;
+  }
   if (first) grid.prepend(card);
   else grid.append(card);
   return image;
 }
-
-for (const model of publishedModels) {
-  model.cover = cachedCover(model);
-  const image = addCard(model);
-  if (model.cover) continue;
-  queueCover(model).then(cover => {
-    model.cover = cover;
-    image.src = cover;
-    rememberCover(model, cover);
-  }).catch(() => {
-    if (!model.placeholder) image.alt = 'Обложка модели недоступна';
-  });
-}
-
-libraryTransaction('readonly', store => store.getAll()).then(entries => {
-  entries.sort((a, b) => a.createdAt - b.createdAt);
-  for (const entry of entries) addCard(entry, true);
-}).catch(() => {});
-
-const addDialog = byId('add-model-dialog');
-const addForm = byId('add-model-form');
-const fileInput = byId('library-file');
-const addStatus = byId('add-model-status');
-const coverImage = byId('library-cover');
-const coverDownload = byId('download-cover');
-const addButton = addForm.querySelector('button[type="submit"]');
-let draft;
-let saving = false;
-
-function setAddStatus(message, error = false) {
-  addStatus.textContent = message;
-  addStatus.toggleAttribute('data-error', error);
-}
-
-function clearCover() {
-  draft = undefined;
-  coverImage.hidden = true;
-  coverImage.removeAttribute('src');
-  coverDownload.hidden = true;
-  if (coverDownload.hasAttribute('href')) URL.revokeObjectURL(coverDownload.href);
-  coverDownload.removeAttribute('href');
-  addButton.disabled = true;
-}
-
-byId('open-add-model').addEventListener('click', () => addDialog.showModal());
-byId('close-add-model').addEventListener('click', () => addDialog.close());
-
-fileInput.addEventListener('change', async () => {
-  clearCover();
-  const file = fileInput.files[0];
-  if (!file) {
-    setAddStatus('');
-    return;
-  }
-  if (!/\.stl$/i.test(file.name) || !file.size || file.size > MAX_FILE_SIZE) {
-    setAddStatus('Выберите непустой STL-файл размером до 20 МБ.', true);
-    return;
-  }
-
-  const selection = { file, color: colors[0][1] };
-  draft = selection;
-  const active = () => draft === selection;
-  setAddStatus('Создаём обложку…');
-  try {
-    const cover = await queueCover(selection, active);
-    if (!active()) return;
-    const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
-    const png = new Blob([bytes], { type: 'image/png' });
-
-    selection.cover = cover;
-    coverImage.src = cover;
-    coverImage.hidden = false;
-    coverDownload.href = URL.createObjectURL(png);
-    coverDownload.download = file.name.replace(/\.stl$/i, '') + '-cover.png';
-    coverDownload.hidden = false;
-    addButton.disabled = false;
-    setAddStatus('Обложка готова.');
-  } catch (error) {
-    if (active()) setAddStatus(error instanceof Error ? error.message : 'Не удалось создать обложку.', true);
-  }
-});
-
-addForm.addEventListener('submit', async event => {
-  event.preventDefault();
-  if (!draft?.cover || saving) return;
-
-  const data = new FormData(addForm);
-  const name = data.get('title').trim();
-  const summary = data.get('description').trim();
-  const link = data.get('download').trim();
-  if (!name || !summary) {
-    setAddStatus('Укажите название и описание модели.', true);
-    return;
-  }
-  let downloadUrl;
-  if (link) {
-    try {
-      const url = new URL(link);
-      if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) throw new Error();
-      downloadUrl = url.href;
-    } catch {
-      setAddStatus('Укажите ссылку для скачивания с https:// или http://.', true);
-      return;
-    }
-  }
-  const record = {
-    ...draft, id: crypto.randomUUID(), title: name, description: summary,
-    downloadUrl, createdAt: Date.now()
-  };
-  saving = true;
-  fileInput.disabled = addButton.disabled = true;
-  let persisted = true;
-  try {
-    await libraryTransaction('readwrite', store => store.put(record));
-  } catch {
-    persisted = false;
-  } finally {
-    saving = false;
-    fileInput.disabled = false;
-  }
-  addCard(record, true);
-  libraryStatus.textContent = persisted ? 'Модель добавлена в этом браузере.' : 'Модель доступна до закрытия страницы.';
-  addForm.reset();
-  clearCover();
-  setAddStatus('');
-  addDialog.close();
-});
 
 for (const button of actions) {
   button.addEventListener('click', () => {
@@ -632,3 +531,675 @@ dialog.addEventListener('close', () => {
   preview.hidden = true;
   enableActions(false);
 });
+
+const BUCKET = 'stl-models';
+const PAGE_SIZE = 24;
+const number = new Intl.NumberFormat('ru-RU');
+const accountLink = byId('account-link');
+const accountPanel = byId('account-panel');
+const publicCatalog = byId('public-catalog');
+const accountStatus = byId('account-status');
+const ownedList = byId('owned-models');
+const catalogMore = byId('catalog-more');
+const authDialog = byId('auth-dialog');
+const authForm = byId('auth-form');
+const authStatus = byId('auth-status');
+const authSubmit = byId('auth-submit');
+const authMode = byId('auth-mode');
+const authName = byId('auth-name');
+const authPassword = byId('auth-password');
+
+let supabase;
+let user;
+let register = false;
+let publicOffset = 0;
+let listing = false;
+let catalogVersion = 0;
+let dashboardVersion = 0;
+let owned = [];
+let authTarget = 'account';
+const publicEntries = new Map();
+const pendingEvents = new Map();
+
+function note(element, message, error = false) {
+  element.textContent = message;
+  element.toggleAttribute('data-error', error);
+}
+
+function describeModel(entry) {
+  const row = entry.remote;
+  if (!row) return entry.file ? 'Локальная модель' : 'Автор: DEXEL 3D · демомодель';
+  return [
+    'Автор: ' + row.author_name,
+    row.category,
+    row.tags.map(tag => '#' + tag).join(' '),
+    'Просмотры: ' + number.format(row.views_count),
+    'Скачивания: ' + number.format(row.downloads_count)
+  ].filter(Boolean).join(' · ');
+}
+
+function cloudFile(path, download) {
+  return supabase.storage.from(BUCKET).getPublicUrl(path, download ? { download } : {}).data.publicUrl;
+}
+
+function publicEntry(row) {
+  return {
+    id: row.id, title: row.title, description: row.description,
+    color: '#d4af37', fileUrl: cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
+  };
+}
+
+async function listPublicModels(restart = false) {
+  if (!supabase) return;
+  if (listing && !restart) return;
+  if (restart) publicOffset = 0;
+  listing = true;
+  const offset = publicOffset;
+  const version = ++catalogVersion;
+  catalogMore.disabled = true;
+  try {
+    const { data, error } = await supabase.from('models').select('*').eq('deleting', false)
+      .order('created_at', { ascending: false }).order('id').range(offset, offset + PAGE_SIZE - 1);
+    if (version !== catalogVersion) return;
+    if (error) throw error;
+    if (restart) {
+      for (const card of grid.querySelectorAll('[data-cloud-model]')) card.remove();
+      publicEntries.clear();
+    }
+    for (const row of data) {
+      if (publicEntries.has(row.id)) continue;
+      const entry = publicEntry(row);
+      publicEntries.set(row.id, entry);
+      addCard(entry);
+    }
+    publicOffset += data.length;
+    catalogMore.hidden = data.length < PAGE_SIZE;
+    note(libraryStatus, '');
+  } catch {
+    if (version !== catalogVersion) return;
+    note(libraryStatus, 'Общий каталог временно недоступен. Можно открыть демонстрационные модели.', true);
+    catalogMore.textContent = 'Повторить загрузку';
+    catalogMore.hidden = false;
+  } finally {
+    if (version === catalogVersion) {
+      listing = false;
+      catalogMore.disabled = false;
+    }
+  }
+}
+
+catalogMore.addEventListener('click', () => {
+  catalogMore.textContent = 'Показать ещё';
+  listPublicModels();
+});
+
+function logModelEvent(entry, kind, meta) {
+  if (!entry.remote || !supabase) return Promise.resolve();
+  const modelId = entry.id;
+  const previous = pendingEvents.get(modelId) || Promise.resolve();
+  const pending = previous.then(async () => {
+    const { data, error } = await supabase.rpc('record_model_event', { model_id: modelId, event_type: kind });
+    if (error || !data?.[0]) return;
+    const counters = data[0];
+    Object.assign(entry.remote, counters);
+    meta.textContent = describeModel(entry);
+    const active = publicEntries.get(modelId);
+    if (active && active !== entry) {
+      Object.assign(active.remote, counters);
+      const activeMeta = grid.querySelector('[data-cloud-model="' + modelId + '"] .catalog-card-meta');
+      if (activeMeta) activeMeta.textContent = describeModel(active);
+    }
+    const item = owned.find(row => row.id === modelId);
+    if (item) {
+      Object.assign(item, counters);
+      if (!accountPanel.hidden) renderOwned();
+    }
+  }).catch(() => {});
+  pendingEvents.set(modelId, pending);
+  pending.finally(() => {
+    if (pendingEvents.get(modelId) === pending) pendingEvents.delete(modelId);
+  });
+  return pending;
+}
+
+function countersText(row) {
+  return [
+    'Просмотры: ' + number.format(row.views_count),
+    'Скачивания: ' + number.format(row.downloads_count),
+    'Клики по заказу: ' + number.format(row.orders_count)
+  ].join(' · ');
+}
+
+function renderOwned() {
+  ownedList.replaceChildren();
+  byId('total-models').textContent = number.format(owned.length);
+  for (const [key, id] of [['views_count', 'total-views'], ['downloads_count', 'total-downloads'], ['orders_count', 'total-orders']]) {
+    const total = owned.reduce((sum, row) => sum + BigInt(row[key] ?? 0), 0n);
+    byId(id).textContent = number.format(total);
+  }
+  for (const row of owned) {
+    const card = document.createElement('article');
+    card.className = 'owned-model';
+    const image = document.createElement('img');
+    image.alt = '';
+    if (!row.deleting) image.src = cloudFile(row.cover_path);
+    image.loading = 'lazy';
+    const text = document.createElement('div');
+    const heading = document.createElement('h3');
+    heading.textContent = row.title + (row.deleting ? ' · ожидает удаления' : '');
+    const counts = document.createElement('p');
+    counts.textContent = countersText(row);
+    text.append(heading, counts);
+    const buttons = document.createElement('div');
+    buttons.className = 'owned-actions';
+    for (const [label, event] of [
+      ['Редактировать', () => openEditor(row)],
+      [row.deleting ? 'Повторить удаление' : 'Удалить', () => askToDelete(row)]
+    ]) {
+      if (row.deleting && label === 'Редактировать') continue;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.textContent = label;
+      button.addEventListener('click', event);
+      buttons.append(button);
+    }
+    card.append(image, text, buttons);
+    ownedList.append(card);
+  }
+}
+
+async function loadDashboard() {
+  if (!user || !supabase) return;
+  const id = user.id;
+  const version = ++dashboardVersion;
+  note(accountStatus, 'Загружаем ваши модели…');
+  try {
+    const rows = [];
+    const batchSize = 200;
+    for (let start = 0;; start += batchSize) {
+      const { data, error } = await supabase.from('models').select('*').eq('user_id', id)
+        .order('created_at', { ascending: false }).order('id').range(start, start + batchSize - 1);
+      if (version !== dashboardVersion || user?.id !== id) return;
+      if (error) throw error;
+      rows.push(...data);
+      if (data.length < batchSize) break;
+    }
+    owned = rows;
+    renderOwned();
+    note(accountStatus, owned.length ? '' : 'У вас пока нет моделей.');
+  } catch {
+    if (version === dashboardVersion) note(accountStatus, 'Не удалось загрузить модели. Откройте кабинет ещё раз.', true);
+  }
+}
+
+function showCatalog() {
+  accountPanel.hidden = true;
+  publicCatalog.hidden = false;
+  byId('catalog-title').setAttribute('tabindex', '-1');
+  byId('catalog-title').focus();
+}
+
+function showAccount() {
+  if (!user) return;
+  publicCatalog.hidden = true;
+  accountPanel.hidden = false;
+  byId('account-identity').textContent = user.user_metadata?.display_name || user.email;
+  byId('account-heading').focus();
+  loadDashboard();
+}
+
+function updateSession(session) {
+  const before = user?.id;
+  user = session?.user;
+  accountLink.textContent = user
+    ? (user.user_metadata?.display_name || user.email || 'Личный кабинет')
+    : 'Войти / Регистрация';
+  accountLink.setAttribute('aria-label', user ? 'Личный кабинет — ' + accountLink.textContent : accountLink.textContent);
+  if (before !== user?.id) {
+    dashboardVersion++;
+    owned = [];
+    ownedList.replaceChildren();
+    for (const id of ['total-models', 'total-views', 'total-downloads', 'total-orders']) byId(id).textContent = '—';
+    if (!user && !accountPanel.hidden) showCatalog();
+    else if (user && !accountPanel.hidden) showAccount();
+  }
+}
+
+function setAuthMode(value) {
+  register = value;
+  byId('auth-title').textContent = register ? 'Регистрация' : 'Войти';
+  byId('auth-name-field').hidden = !register;
+  authName.required = register;
+  authPassword.minLength = register ? 6 : 0;
+  authPassword.autocomplete = register ? 'new-password' : 'current-password';
+  authSubmit.textContent = register ? 'Зарегистрироваться' : 'Войти';
+  authMode.textContent = register ? 'Уже есть аккаунт' : 'Создать аккаунт';
+  note(authStatus, '');
+}
+
+function openAuth(target) {
+  authTarget = target;
+  authForm.reset();
+  setAuthMode(false);
+  authForm.hidden = !supabase;
+  if (!supabase) note(authStatus, 'Облачный кабинет пока не подключён. Каталог и локальная загрузка доступны.');
+  authDialog.showModal();
+}
+
+authMode.addEventListener('click', () => setAuthMode(!register));
+authForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!supabase || authSubmit.disabled) return;
+  const fields = new FormData(authForm);
+  const email = fields.get('email').trim();
+  const password = fields.get('password');
+  const displayName = fields.get('displayName').trim();
+  if (register && !displayName) {
+    note(authStatus, 'Укажите имя автора.', true);
+    return;
+  }
+  authSubmit.disabled = authMode.disabled = true;
+  note(authStatus, register ? 'Создаём аккаунт…' : 'Входим…');
+  try {
+    const { data, error } = register
+      ? await supabase.auth.signUp({
+        email, password,
+        options: { data: { display_name: displayName }, emailRedirectTo: new URL('./', location.href).href }
+      })
+      : await supabase.auth.signInWithPassword({ email, password });
+    if (error) {
+      const message = { invalid_credentials: 'Проверьте e-mail и пароль.', email_not_confirmed: 'Подтвердите e-mail и попробуйте снова.', weak_password: 'Выберите более надёжный пароль.', over_email_send_rate_limit: 'Письмо уже отправлено. Подождите перед повторной попыткой.' }[error.code];
+      throw new Error(message || 'Не удалось выполнить вход или регистрацию. Попробуйте ещё раз.');
+    }
+    if (!data.session) {
+      authPassword.value = '';
+      note(authStatus, 'Если адрес можно зарегистрировать, вы получите письмо для подтверждения e-mail.');
+      return;
+    }
+    updateSession(data.session);
+    authDialog.close();
+    if (authTarget === 'add') openEditor();
+    else showAccount();
+  } catch (error) {
+    note(authStatus, error.message || 'Нет связи с сервером.', true);
+  } finally {
+    authSubmit.disabled = authMode.disabled = false;
+  }
+});
+
+byId('account-back').addEventListener('click', showCatalog);
+byId('sign-out').addEventListener('click', async () => {
+  try {
+    const { error } = await supabase.auth.signOut({ scope: 'local' });
+    if (error) throw error;
+    updateSession(null);
+  } catch {
+    note(accountStatus, 'Не удалось завершить сеанс. Попробуйте ещё раз.', true);
+  }
+});
+
+async function initCloud() {
+  if (!SUPABASE_URL.trim() || !SUPABASE_ANON_KEY.trim()) return;
+  try {
+    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/+esm');
+    supabase = createClient(SUPABASE_URL.trim(), SUPABASE_ANON_KEY.trim(), {
+      auth: { storageKey: 'dexel-library-session' },
+      global: {
+        fetch: (input, init) => fetch(input, String(input.url || input).includes('/rpc/record_model_event')
+          ? { ...init, keepalive: true }
+          : init)
+      }
+    });
+    supabase.auth.onAuthStateChange((_event, session) => {
+      setTimeout(() => updateSession(session), 0);
+    });
+    const { data } = await supabase.auth.getSession();
+    updateSession(data?.session);
+    listPublicModels();
+  } catch {
+    supabase = undefined;
+    note(libraryStatus, 'Облачный каталог временно недоступен. Открыт локальный режим.', true);
+  }
+}
+
+const cloudSetup = initCloud();
+accountLink.addEventListener('click', async () => {
+  await cloudSetup;
+  if (user) showAccount();
+  else openAuth('account');
+});
+
+const addDialog = byId('add-model-dialog');
+const addForm = byId('add-model-form');
+const fileInput = byId('library-file');
+const addStatus = byId('add-model-status');
+const coverImage = byId('library-cover');
+const coverDownload = byId('download-cover');
+const angleFields = byId('cover-angle');
+const azimuthInput = byId('cover-azimuth');
+const elevationInput = byId('cover-elevation');
+const addButton = addForm.querySelector('button[type="submit"]');
+const closeEditor = byId('close-add-model');
+const deleteDialog = byId('delete-model-dialog');
+
+let editing;
+let draft;
+let pendingDeletion;
+let saving = false;
+let previewRevision = 0;
+
+function setAngleReadouts() {
+  byId('cover-azimuth-value').textContent = azimuthInput.value + '°';
+  byId('cover-elevation-value').textContent = elevationInput.value + '°';
+}
+
+function clearEditorPreview() {
+  previewRevision++;
+  draft = undefined;
+  coverImage.hidden = true;
+  coverImage.removeAttribute('src');
+  coverDownload.hidden = true;
+  if (coverDownload.hasAttribute('href')) URL.revokeObjectURL(coverDownload.href);
+  coverDownload.removeAttribute('href');
+  addButton.disabled = true;
+}
+
+function showExistingCover() {
+  angleFields.hidden = !editing;
+  if (editing) {
+    coverImage.src = cloudFile(editing.cover_path);
+    coverImage.hidden = false;
+    addButton.disabled = false;
+  }
+}
+
+function openEditor(row) {
+  editing = row;
+  addForm.reset();
+  clearEditorPreview();
+  note(addStatus, '');
+  setAngleReadouts();
+  fileInput.required = !row;
+  byId('cloud-model-fields').hidden = !supabase;
+  byId('local-model-fields').hidden = Boolean(supabase);
+  byId('add-model-title').textContent = row ? 'Редактировать модель' : 'Добавить модель';
+  addButton.textContent = row ? 'Сохранить изменения' : (supabase ? 'Опубликовать модель' : 'Добавить в каталог');
+  byId('add-model-help').textContent = row
+    ? 'Выберите новый STL или измените ракурс текущей модели. Опубликованную модель могут скачать все посетители.'
+    : supabase
+      ? 'STL и обложка появятся в общем каталоге. Публикуйте модели, которыми вы вправе делиться.'
+      : 'Модель сохранится в этом браузере.';
+  if (row) {
+    byId('library-title').value = row.title;
+    byId('library-description').value = row.description;
+    byId('library-category').value = row.category;
+    byId('library-tags').value = row.tags.join(', ');
+    azimuthInput.value = row.cover_azimuth;
+    elevationInput.value = row.cover_elevation;
+    setAngleReadouts();
+  }
+  showExistingCover();
+  addDialog.showModal();
+}
+
+async function startAdding() {
+  await cloudSetup;
+  if (supabase && !user) openAuth('add');
+  else openEditor();
+}
+byId('open-add-model').addEventListener('click', startAdding);
+byId('account-add').addEventListener('click', startAdding);
+closeEditor.addEventListener('click', () => addDialog.close());
+addDialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
+addDialog.addEventListener('close', () => {
+  if (!addDialog.open) clearEditorPreview();
+});
+
+async function renderEditorCover() {
+  clearEditorPreview();
+  const file = fileInput.files[0];
+  if (file && (!/\.stl$/i.test(file.name) || !file.size || file.size > MAX_FILE_SIZE)) {
+    angleFields.hidden = true;
+    note(addStatus, 'Выберите непустой STL-файл размером до 20 МБ.', true);
+    return;
+  }
+  if (!file && !editing) {
+    angleFields.hidden = true;
+    note(addStatus, '');
+    return;
+  }
+
+  angleFields.hidden = false;
+  const version = previewRevision;
+  const selection = {
+    file,
+    fileUrl: file ? undefined : cloudFile(editing.stl_path),
+    color: '#d4af37',
+    azimuth: Number(azimuthInput.value),
+    elevation: Number(elevationInput.value)
+  };
+  const active = () => version === previewRevision && addDialog.open;
+  note(addStatus, 'Создаём обложку…');
+  try {
+    const cover = await queueCover(selection, active);
+    if (!active()) return;
+    const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
+    draft = { ...selection, cover, png: new Blob([bytes], { type: 'image/png' }) };
+    coverImage.src = cover;
+    coverImage.hidden = false;
+    coverDownload.href = URL.createObjectURL(draft.png);
+    coverDownload.download = (file?.name.replace(/\.stl$/i, '') || 'dexel-model') + '-cover.png';
+    coverDownload.hidden = false;
+    addButton.disabled = false;
+    note(addStatus, 'Обложка готова.');
+  } catch (error) {
+    if (active()) note(addStatus, error instanceof Error ? error.message : 'Не удалось создать обложку.', true);
+  }
+}
+
+fileInput.addEventListener('change', () => {
+  if (fileInput.files.length || !editing) renderEditorCover();
+  else {
+    clearEditorPreview();
+    showExistingCover();
+    note(addStatus, '');
+  }
+});
+for (const input of [azimuthInput, elevationInput]) {
+  input.addEventListener('input', () => {
+    setAngleReadouts();
+    addButton.disabled = true;
+  });
+  input.addEventListener('change', renderEditorCover);
+}
+
+async function saveCloudModel(fields, selection, row, account) {
+  const id = row?.id ?? crypto.randomUUID();
+  const prefix = account.id + '/' + id + '/' + crypto.randomUUID();
+  const storage = supabase.storage.from(BUCKET);
+  const uploaded = [];
+
+  async function upload(path, bytes, contentType) {
+    uploaded.push(path);
+    const { error } = await storage.upload(path, await bytes.arrayBuffer(), { contentType, upsert: false });
+    if (error) throw new Error('Не удалось загрузить файлы модели. Проверьте подключение и настройки хранилища.');
+  }
+
+  const payload = { ...fields };
+  try {
+    if (selection?.file) {
+      payload.stl_path = prefix + '.stl';
+      await upload(payload.stl_path, selection.file, 'model/stl');
+    }
+    if (selection) {
+      payload.cover_path = prefix + '.png';
+      payload.cover_azimuth = selection.azimuth;
+      payload.cover_elevation = selection.elevation;
+      await upload(payload.cover_path, selection.png, 'image/png');
+    }
+  } catch (error) {
+    if (uploaded.length) await storage.remove(uploaded).catch(() => {});
+    throw error;
+  }
+
+  let saved;
+  try {
+    const table = supabase.from('models');
+    const change = row
+      ? table.update(payload).eq('id', id).eq('user_id', account.id).eq('updated_at', row.updated_at).eq('deleting', false)
+      : table.insert({ id, ...payload });
+    const { data, error } = await change.select('id, stl_path, cover_path').maybeSingle();
+    if (error || !data) throw new Error();
+    saved = data;
+  } catch {
+    // Resolve an interrupted response before removing any file that may have been committed.
+    const { data: current, error } = await supabase.from('models')
+      .select('id, title, description, category, tags, stl_path, cover_path, cover_azimuth, cover_elevation')
+      .eq('id', id).eq('user_id', account.id).eq('deleting', false).maybeSingle();
+    const matches = current && Object.entries(payload).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
+    const filesMatch = current && uploaded.length && uploaded.every(path => path === current.stl_path || path === current.cover_path);
+    if (!error && (matches || filesMatch)) {
+      saved = current;
+    } else {
+      if (!error && uploaded.length) {
+        await storage.remove(uploaded.filter(path => path !== current?.stl_path && path !== current?.cover_path)).catch(() => {});
+      }
+      throw new Error('Не удалось подтвердить сохранение. Обновите список моделей перед повторной попыткой.');
+    }
+  }
+
+  if (row) {
+    const old = [row.stl_path, row.cover_path].filter(path => path !== saved.stl_path && path !== saved.cover_path);
+    if (old.length) await storage.remove(old).catch(() => {});
+  }
+}
+
+async function saveLocalModel(data, fields) {
+  const link = data.get('download').trim();
+  let downloadUrl;
+  if (link) {
+    const url = new URL(link);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password) {
+      throw new Error('Укажите ссылку для скачивания с https:// или http://.');
+    }
+    downloadUrl = url.href;
+  }
+  const { file, cover, color, azimuth, elevation } = draft;
+  const model = { file, cover, color, azimuth, elevation, ...fields, downloadUrl, id: crypto.randomUUID(), createdAt: Date.now() };
+  let persisted = true;
+  try {
+    await libraryTransaction('readwrite', store => store.put(model));
+  } catch {
+    persisted = false;
+  }
+  addCard(model, true);
+  note(libraryStatus, persisted ? 'Модель добавлена в этом браузере.' : 'Модель доступна до закрытия страницы.');
+}
+
+addForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  if (saving || addButton.disabled || (!editing && !draft?.file)) return;
+  const data = new FormData(addForm);
+  const fields = { title: data.get('title').trim(), description: data.get('description').trim() };
+  if (!fields.title || !fields.description) {
+    note(addStatus, 'Укажите название и описание модели.', true);
+    return;
+  }
+  if (supabase) {
+    fields.category = data.get('category').trim();
+    fields.tags = [...new Set(data.get('tags').split(',').map(tag => tag.trim().replace(/^#+/, '')).filter(Boolean))];
+    if (fields.tags.length > 8) {
+      note(addStatus, 'Можно указать до восьми тегов.', true);
+      return;
+    }
+    if (!user) {
+      note(addStatus, 'Войдите снова, чтобы опубликовать модель.', true);
+      return;
+    }
+  }
+  saving = true;
+  addButton.disabled = closeEditor.disabled = fileInput.disabled = azimuthInput.disabled = elevationInput.disabled = true;
+  note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
+  try {
+    if (supabase) {
+      await saveCloudModel(fields, draft, editing, user);
+      listPublicModels(true);
+      if (!accountPanel.hidden) loadDashboard();
+    } else {
+      await saveLocalModel(data, fields);
+    }
+    addDialog.close();
+  } catch (error) {
+    note(addStatus, error.message || 'Не удалось сохранить модель. Попробуйте ещё раз.', true);
+  } finally {
+    saving = false;
+    closeEditor.disabled = fileInput.disabled = azimuthInput.disabled = elevationInput.disabled = false;
+    addButton.disabled = !editing && !draft?.cover;
+  }
+});
+
+function askToDelete(row) {
+  pendingDeletion = row;
+  deleteDialog.returnValue = '';
+  byId('delete-model-message').textContent = '«' + row.title + '» исчезнет из каталога. STL и обложка будут удалены.';
+  deleteDialog.showModal();
+}
+
+deleteDialog.addEventListener('close', async () => {
+  if (deleteDialog.returnValue !== 'delete' || !pendingDeletion || !user) return;
+  const row = pendingDeletion;
+  const owner = user.id;
+  pendingDeletion = undefined;
+  ownedList.inert = true;
+  note(accountStatus, 'Удаляем модель и её файлы…');
+  try {
+    const table = supabase.from('models');
+    if (!row.deleting) {
+      const { data, error } = await table.update({ deleting: true }).eq('id', row.id).eq('user_id', owner)
+        .eq('updated_at', row.updated_at).select('id').maybeSingle();
+      if (error || !data) throw new Error();
+      row.deleting = true;
+      listPublicModels(true);
+    }
+
+    const folder = owner + '/' + row.id;
+    const storage = supabase.storage.from(BUCKET);
+    const paths = [];
+    for (let offset = 0;; offset += 100) {
+      const { data, error } = await storage.list(folder, { limit: 100, offset, sortBy: { column: 'name', order: 'asc' } });
+      if (error) throw error;
+      paths.push(...data.filter(file => file.id).map(file => folder + '/' + file.name));
+      if (data.length < 100) break;
+    }
+    for (let start = 0; start < paths.length; start += 100) {
+      const { error } = await storage.remove(paths.slice(start, start + 100));
+      if (error) throw error;
+    }
+    const { error } = await supabase.from('models').delete().eq('id', row.id).eq('user_id', owner).eq('deleting', true);
+    if (error) throw error;
+    await loadDashboard();
+  } catch {
+    await loadDashboard();
+    note(accountStatus, 'Удаление не завершилось. Проверьте список и повторите попытку.', true);
+  } finally {
+    ownedList.inert = false;
+  }
+});
+
+for (const model of publishedModels) {
+  model.cover = cachedCover(model);
+  const image = addCard(model);
+  if (model.cover) continue;
+  queueCover(model).then(cover => {
+    model.cover = cover;
+    image.src = cover;
+    rememberCover(model, cover);
+  }).catch(() => {
+    if (!model.placeholder) image.alt = 'Обложка модели недоступна';
+  });
+}
+
+libraryTransaction('readonly', store => store.getAll()).then(entries => {
+  entries.sort((a, b) => a.createdAt - b.createdAt);
+  for (const entry of entries) addCard(entry, true);
+}).catch(() => {});
