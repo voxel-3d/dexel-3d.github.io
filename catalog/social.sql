@@ -107,11 +107,11 @@ create policy "Remove own vote" on public.request_votes for delete to authentica
 
 create or replace function public.favorite_counts()
 returns table(model_key text, count bigint) language sql stable security definer set search_path = '' as $$
-  select f.model_key, count(*) from public.favorites f where public.dexel_model_exists(f.model_key) group by f.model_key;
+  select f.model_key, count(*) from public.favorites f where public.dexel_model_exists(f.model_key) group by f.model_key order by f.model_key;
 $$;
 create or replace function public.request_vote_counts()
 returns table(request_id uuid, count bigint) language sql stable security definer set search_path = '' as $$
-  select v.request_id, count(*) from public.request_votes v group by v.request_id;
+  select v.request_id, count(*) from public.request_votes v group by v.request_id order by v.request_id;
 $$;
 create or replace function public.popular_model_authors()
 returns table(user_id uuid, author_name text, views numeric, downloads numeric) language sql stable security definer set search_path = '' as $$

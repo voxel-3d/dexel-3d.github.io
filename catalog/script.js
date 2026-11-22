@@ -1582,3 +1582,4 @@ for (const entry of entries.values()) {
   const card = cards.get(entry);
   if (card) social.bindFavorite(card.querySelector('.favorite-button'), entry);
 }
+if (activeModel) social.openModel(activeModel);
