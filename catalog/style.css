@@ -281,6 +281,7 @@
   width: auto;
   height: min(220px, 29vh);
   max-width: 100%;
+  object-fit: contain;
   margin: 12px auto;
   border: 1px solid var(--line);
 }
@@ -378,3 +379,7 @@
 .cover-angle label { margin: 0; }
 .cover-angle output { color: var(--accent); }
 .cover-angle input[type="range"] { accent-color: var(--accent); margin: 0; padding: 0; }
+.cover-photo { margin-top: 16px; }
+.cover-photo label { margin: 0; }
+.cover-photo p { margin: 4px 0 8px; color: var(--muted); font-size: .875rem; }
+.cover-photo .catalog-card-button { width: auto; margin-top: 8px; }

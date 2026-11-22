@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=cloud">
+  <link rel="stylesheet" href="style.css?v=cover-photo">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=cloud"></script>
+  <script type="module" src="script.js?v=cover-photo"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -40,7 +40,7 @@
     <section id="public-catalog" aria-labelledby="catalog-title">
       <div class="catalog-heading">
         <h1 id="catalog-title">Каталог <em>3D-моделей</em></h1>
-        <p>Откройте модель в 3D, скачайте STL или закажите печать. Для своего файла обложка создастся автоматически.</p>
+        <p>Откройте модель в 3D, скачайте STL или закажите печать. Для своей модели выберите фото или создайте 3D-обложку из STL.</p>
       </div>
       <div class="library-toolbar">
         <button class="catalog-card-button library-add" type="button" id="open-add-model" aria-haspopup="dialog">Добавить модель</button>
@@ -154,6 +154,12 @@
         <label for="library-download">Ссылка для скачивания (необязательно)</label>
         <input id="library-download" name="download" type="url" maxlength="2048" placeholder="https://…">
       </div>
+      <div class="cover-photo">
+        <label for="library-photo">Своё фото для обложки</label>
+        <p id="library-photo-help">Необязательно. JPG, PNG или WebP до 10 МБ.</p>
+        <input id="library-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-describedby="library-photo-help">
+        <button id="use-stl-cover" class="catalog-card-button" type="button" hidden>Создать обложку из STL</button>
+      </div>
       <fieldset id="cover-angle" class="cover-angle" hidden>
         <legend>Ракурс обложки</legend>
         <label for="cover-azimuth">Поворот <output for="cover-azimuth" id="cover-azimuth-value">45°</output></label>
@@ -161,7 +167,7 @@
         <label for="cover-elevation">Наклон <output for="cover-elevation" id="cover-elevation-value">40°</output></label>
         <input id="cover-elevation" type="range" min="0" max="85" value="40" step="5">
       </fieldset>
-      <img id="library-cover" class="library-cover" width="640" height="500" alt="Сгенерированная обложка модели" hidden>
+      <img id="library-cover" class="library-cover" width="640" height="500" alt="Предпросмотр обложки модели" hidden>
       <p id="add-model-status" class="library-status" role="status"></p>
       <div class="add-model-actions">
         <button class="button" type="submit" disabled>Добавить в каталог</button>
