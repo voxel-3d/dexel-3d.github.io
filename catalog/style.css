@@ -240,3 +240,62 @@
 
 .model-header p, .model-footer p { text-align: start; }
 .model-stage img { max-height: none; }
+
+.library-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  margin-bottom: 24px;
+}
+
+.library-add { width: auto; padding-inline: 20px; background: var(--accent); color: #101110; font-weight: 800; }
+.library-add:hover { background: #f3c98d; }
+.library-status { margin: 0; color: var(--muted); font-size: .875rem; }
+.library-status[data-error] { color: #ffb8a8; }
+.library-status:empty { display: none; }
+.catalog-card-image:not([src]) { visibility: hidden; }
+.catalog-card-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: auto; }
+.catalog-card-actions .catalog-card-button { justify-content: center; font-size: .875rem; padding-inline: 6px; text-align: center; }
+.catalog-order {
+  grid-column: 1 / -1;
+  padding: 12px 10px;
+  min-height: 44px;
+  color: #101110;
+  background: var(--accent);
+  font-weight: 800;
+  font-size: .875rem;
+  text-align: center;
+}
+.catalog-order:hover { background: #f3c98d; }
+
+.add-model-dialog { width: min(620px, calc(100% - 28px)); }
+.catalog-page:has(dialog[open]) { overflow: hidden; }
+.add-model-form { padding: 0 clamp(14px, 3vw, 24px) 20px; }
+.add-model-form label, .model-color label { display: block; }
+.add-model-form input, .add-model-form textarea { width: 100%; }
+.add-model-form input[type="file"] { padding: 10px; }
+.add-model-form .library-status { text-align: start; margin-top: 10px; }
+.add-model-form .library-cover {
+  display: block;
+  width: auto;
+  height: min(220px, 29vh);
+  max-width: 100%;
+  margin: 12px auto;
+  border: 1px solid var(--line);
+}
+.add-model-form [hidden] { display: none; }
+.add-model-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 14px; }
+.add-model-actions .button, .add-model-actions .catalog-card-button { width: auto; min-height: 44px; padding: 10px 14px; }
+.add-model-actions .button:disabled { opacity: .55; cursor: default; }
+.model-tools { display: grid; gap: 8px; }
+.model-color { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.model-color label { margin: 0; font-size: .875rem; }
+.model-color select { width: auto; min-height: 40px; padding: 7px 9px; }
+.model-actions { min-width: 0; }
+
+@media (max-width: 420px) {
+  .catalog-card-actions { grid-template-columns: minmax(0, 1fr); }
+}
+
+.model-stage img[hidden] { display: none; }
