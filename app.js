@@ -105,6 +105,18 @@ function isValidOrderContact(value){
   return digits.length>=7&&digits.length<=15&&/^\+?[\d\s().-]+$/.test(contact);
 }
 const briefForm=document.getElementById('brief-form');
+const catalogOrder = /^#request\?(.+)$/.exec(window.location.hash);
+if (catalogOrder) {
+  const modelName = new URLSearchParams(catalogOrder[1]).get('model')?.trim().slice(0, 100);
+  const details = briefForm.elements.namedItem('details');
+  if (modelName && details && !details.value) {
+    briefForm.elements.namedItem('type').value = 'Печать по моей модели';
+    details.value = 'Модель из каталога: ' + modelName;
+  }
+  history.replaceState(history.state, '', '#request');
+  requestAnimationFrame(() => document.getElementById('request').scrollIntoView());
+}
+
 const orderContact=document.getElementById('contact');
 const orderStatus=document.getElementById('order-status');
 const orderSubmitButton=briefForm.querySelector('button[type="submit"]');

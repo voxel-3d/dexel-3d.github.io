@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="catalog.css?v=2">
+  <link rel="stylesheet" href="style.css?v=1">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="catalog.js?v=2"></script>
+  <script type="module" src="script.js?v=1"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -39,37 +39,28 @@
     <section aria-labelledby="catalog-title">
       <div class="catalog-heading">
         <h1 id="catalog-title">Каталог <em>3D-моделей</em></h1>
-        <p>Рассмотрите демонстрационные модели со всех сторон. Нажмите «Смотреть в 3D», чтобы повернуть объект и приблизить детали.</p>
+        <p>Откройте модель в 3D, скачайте STL или закажите печать. Для своего файла обложка создастся автоматически.</p>
       </div>
-      <noscript><p class="catalog-noscript">Включите JavaScript для интерактивного просмотра 3D. Превью доступны ниже.</p></noscript>
-      <div class="catalog-grid">
-        <article class="catalog-card">
-          <img class="catalog-card-image" src="assets/ribbed-vase.webp" width="768" height="600" alt="Тёплая песочная ваза с вертикальными рёбрами" fetchpriority="high" decoding="async">
-          <div class="catalog-card-body">
-            <h2>Рельефная ваза</h2>
-            <p>Мягкий силуэт и ритм вертикальных рёбер для сухоцветов.</p>
-            <button class="catalog-card-button" type="button" aria-haspopup="dialog" data-model="assets/ribbed-vase.glb">Смотреть в 3D <span aria-hidden="true">↗</span></button>
-          </div>
-        </article>
-
-        <article class="catalog-card">
-          <img class="catalog-card-image" src="assets/phone-stand.webp" width="768" height="600" alt="Синяя подставка с наклонной опорой и нижним упором" decoding="async">
-          <div class="catalog-card-body">
-            <h2>Подставка для телефона</h2>
-            <p>Наклонная опора с нижним упором для рабочего стола.</p>
-            <button class="catalog-card-button" type="button" aria-haspopup="dialog" data-model="assets/phone-stand.glb">Смотреть в 3D <span aria-hidden="true">↗</span></button>
-          </div>
-        </article>
-
-        <article class="catalog-card">
-          <img class="catalog-card-image" src="assets/hex-organizer.webp" width="768" height="600" alt="Оливковый шестигранный лоток со ступенчатыми стенками" decoding="async">
-          <div class="catalog-card-body">
-            <h2>Шестигранный органайзер</h2>
-            <p>Открытый лоток для ключей, крепежа и мелочей.</p>
-            <button class="catalog-card-button" type="button" aria-haspopup="dialog" data-model="assets/hex-organizer.glb">Смотреть в 3D <span aria-hidden="true">↗</span></button>
-          </div>
-        </article>
+      <div class="library-toolbar">
+        <button class="catalog-card-button library-add" type="button" id="open-add-model" aria-haspopup="dialog">Добавить модель</button>
+        <p class="library-status" id="library-status" role="status"></p>
       </div>
+      <noscript><p class="catalog-noscript">Для каталога и автогенерации обложек включите JavaScript.</p></noscript>
+      <div id="library-grid" class="catalog-grid"></div>
+      <template id="library-card">
+        <article class="catalog-card">
+          <img class="catalog-card-image" width="640" height="500" alt="" decoding="async">
+          <div class="catalog-card-body">
+            <h2></h2>
+            <p></p>
+            <div class="catalog-card-actions">
+              <button class="catalog-card-button" type="button" aria-haspopup="dialog">Смотреть в 3D</button>
+              <a class="catalog-card-button catalogue-download" download>Скачать STL</a>
+              <a class="catalog-order">Заказать печать в DEXEL 3D</a>
+            </div>
+          </div>
+        </article>
+      </template>
     </section>
   </main>
 
@@ -77,6 +68,32 @@
     <a href="../">Мастерская DEXEL 3D</a>
     <a href="../#request">Обсудить печать модели <span aria-hidden="true">↗</span></a>
   </footer>
+
+  <dialog id="add-model-dialog" class="model-dialog add-model-dialog" aria-labelledby="add-model-title">
+    <header class="model-header">
+      <div>
+        <h2 id="add-model-title">Добавить модель</h2>
+        <p>Модель сохранится в этом браузере. Для публикации используйте STL и обложку в репозитории сайта.</p>
+      </div>
+      <button class="model-close" id="close-add-model" type="button" aria-label="Закрыть добавление модели">×</button>
+    </header>
+    <form id="add-model-form" class="add-model-form">
+      <label for="library-file">Файл STL, до 20 МБ</label>
+      <input id="library-file" name="file" type="file" accept=".stl,model/stl" required autofocus>
+      <label for="library-title">Название</label>
+      <input id="library-title" name="title" type="text" maxlength="100" required>
+      <label for="library-description">Описание</label>
+      <textarea id="library-description" name="description" rows="3" maxlength="500" required></textarea>
+      <label for="library-download">Ссылка для скачивания (необязательно)</label>
+      <input id="library-download" name="download" type="url" maxlength="2048" placeholder="https://…">
+      <img id="library-cover" class="library-cover" width="640" height="500" alt="Сгенерированная обложка модели" hidden>
+      <p id="add-model-status" class="library-status" role="status"></p>
+      <div class="add-model-actions">
+        <button class="button" type="submit" disabled>Добавить в каталог</button>
+        <a id="download-cover" class="catalog-card-button" download hidden>Скачать готовую обложку (PNG)</a>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="model-dialog" class="model-dialog" aria-labelledby="model-title">
     <header class="model-header">
@@ -94,10 +111,16 @@
     </div>
     <div class="model-footer">
       <p id="model-help">Перетаскивайте модель, чтобы вращать. Колесо мыши или щипок меняет масштаб. С клавиатуры используйте стрелки, «+» и «−».</p>
-      <div class="model-actions" role="group" aria-label="Управление камерой">
-        <button type="button" data-view-action="out" aria-label="Отдалить" disabled>−</button>
-        <button type="button" data-view-action="in" aria-label="Приблизить" disabled>+</button>
-        <button type="button" data-view-action="reset" disabled>Сбросить ракурс</button>
+      <div class="model-tools">
+        <div class="model-color">
+          <label for="model-color">Цвет пластика</label>
+          <select id="model-color" disabled></select>
+        </div>
+        <div class="model-actions" role="group" aria-label="Управление камерой">
+          <button type="button" data-view-action="out" aria-label="Отдалить" disabled>−</button>
+          <button type="button" data-view-action="in" aria-label="Приблизить" disabled>+</button>
+          <button type="button" data-view-action="reset" disabled>Сбросить ракурс</button>
+        </div>
       </div>
     </div>
   </dialog>
