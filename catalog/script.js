@@ -36,6 +36,8 @@ const colors = [
 ];
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
+const MAX_PHOTO_EDGE = 1280;
 const MAX_SOFTWARE_TRIANGLES = 50000;
 const COVER_WIDTH = 640;
 const COVER_HEIGHT = 500;
@@ -872,6 +874,8 @@ accountLink.addEventListener('click', async () => {
 const addDialog = byId('add-model-dialog');
 const addForm = byId('add-model-form');
 const fileInput = byId('library-file');
+const photoInput = byId('library-photo');
+const stlCoverButton = byId('use-stl-cover');
 const addStatus = byId('add-model-status');
 const coverImage = byId('library-cover');
 const coverDownload = byId('download-cover');
@@ -905,7 +909,8 @@ function clearEditorPreview() {
 }
 
 function showExistingCover() {
-  angleFields.hidden = !editing;
+  angleFields.hidden = true;
+  stlCoverButton.hidden = !editing;
   if (editing) {
     coverImage.src = cloudFile(editing.cover_path);
     coverImage.hidden = false;
@@ -925,7 +930,7 @@ function openEditor(row) {
   byId('add-model-title').textContent = row ? 'Редактировать модель' : 'Добавить модель';
   addButton.textContent = row ? 'Сохранить изменения' : (supabase ? 'Опубликовать модель' : 'Добавить в каталог');
   byId('add-model-help').textContent = row
-    ? 'Выберите новый STL или измените ракурс текущей модели. Опубликованную модель могут скачать все посетители.'
+    ? 'Вы можете заменить STL, выбрать новое фото или переснять обложку текущей модели.'
     : supabase
       ? 'STL и обложка появятся в общем каталоге. Публикуйте модели, которыми вы вправе делиться.'
       : 'Модель сохранится в этом браузере.';
@@ -955,55 +960,85 @@ addDialog.addEventListener('close', () => {
   if (!addDialog.open) clearEditorPreview();
 });
 
+async function photoCover(photo) {
+  if (!/\.(jpe?g|png|webp)$/i.test(photo.name) || !photo.size || photo.size > MAX_PHOTO_SIZE) {
+    throw new Error('Выберите фото в формате JPG, PNG или WebP до 10 МБ.');
+  }
+  const url = URL.createObjectURL(photo);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const scale = Math.min(1, MAX_PHOTO_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/png');
+  } catch {
+    throw new Error('Не удалось открыть фото. Попробуйте выбрать другое изображение.');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 async function renderEditorCover() {
   clearEditorPreview();
   const file = fileInput.files[0];
+  const photo = photoInput.files[0];
+  angleFields.hidden = Boolean(photo) || (!file && !editing);
+  stlCoverButton.hidden = !photo && !editing;
   if (file && (!/\.stl$/i.test(file.name) || !file.size || file.size > MAX_FILE_SIZE)) {
     angleFields.hidden = true;
     note(addStatus, 'Выберите непустой STL-файл размером до 20 МБ.', true);
     return;
   }
-  if (!file && !editing) {
-    angleFields.hidden = true;
+  if (!file && !photo && !editing) {
     note(addStatus, '');
     return;
   }
 
-  angleFields.hidden = false;
   const version = previewRevision;
   const selection = {
     file,
-    fileUrl: file ? undefined : cloudFile(editing.stl_path),
+    fileUrl: !file && editing ? cloudFile(editing.stl_path) : undefined,
+    customPhoto: Boolean(photo),
     color: '#d4af37',
     azimuth: Number(azimuthInput.value),
     elevation: Number(elevationInput.value)
   };
   const active = () => version === previewRevision && addDialog.open;
-  note(addStatus, 'Создаём обложку…');
+  note(addStatus, photo ? 'Готовим фото…' : 'Создаём обложку…');
   try {
-    const cover = await queueCover(selection, active);
+    const cover = photo ? await photoCover(photo) : await queueCover(selection, active);
     if (!active()) return;
     const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
     draft = { ...selection, cover, png: new Blob([bytes], { type: 'image/png' }) };
     coverImage.src = cover;
     coverImage.hidden = false;
     coverDownload.href = URL.createObjectURL(draft.png);
-    coverDownload.download = (file?.name.replace(/\.stl$/i, '') || 'dexel-model') + '-cover.png';
+    const name = file?.name || photo?.name || 'dexel-model';
+    coverDownload.download = name.replace(/\.[^.]+$/, '') + '-cover.png';
     coverDownload.hidden = false;
-    addButton.disabled = false;
-    note(addStatus, 'Обложка готова.');
+    addButton.disabled = !file && !editing;
+    note(addStatus, addButton.disabled ? 'Фото готово. Добавьте STL-файл модели.' : 'Обложка готова.');
   } catch (error) {
     if (active()) note(addStatus, error instanceof Error ? error.message : 'Не удалось создать обложку.', true);
   }
 }
 
 fileInput.addEventListener('change', () => {
-  if (fileInput.files.length || !editing) renderEditorCover();
+  if (fileInput.files.length || photoInput.files.length || !editing) renderEditorCover();
   else {
     clearEditorPreview();
     showExistingCover();
     note(addStatus, '');
   }
+});
+photoInput.addEventListener('change', renderEditorCover);
+stlCoverButton.addEventListener('click', () => {
+  photoInput.value = '';
+  renderEditorCover();
 });
 for (const input of [azimuthInput, elevationInput]) {
   input.addEventListener('input', () => {
@@ -1118,9 +1153,15 @@ addForm.addEventListener('submit', async event => {
     }
   }
   saving = true;
-  addButton.disabled = closeEditor.disabled = fileInput.disabled = azimuthInput.disabled = elevationInput.disabled = true;
+  const editorControls = [closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput];
+  addButton.disabled = true;
+  for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
+    if (draft?.customPhoto && draft.file) {
+      const [THREE, { STLLoader }] = await getSTLModules();
+      disposeModel(await loadSTL(THREE, STLLoader, draft));
+    }
     if (supabase) {
       await saveCloudModel(fields, draft, editing, user);
       listPublicModels(true);
@@ -1133,8 +1174,8 @@ addForm.addEventListener('submit', async event => {
     note(addStatus, error.message || 'Не удалось сохранить модель. Попробуйте ещё раз.', true);
   } finally {
     saving = false;
-    closeEditor.disabled = fileInput.disabled = azimuthInput.disabled = elevationInput.disabled = false;
-    addButton.disabled = !editing && !draft?.cover;
+    for (const control of editorControls) control.disabled = false;
+    addButton.disabled = !editing && !draft?.file;
   }
 });
 
