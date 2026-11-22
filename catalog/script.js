@@ -1,3 +1,5 @@
+import { initSocial } from './social.js?v=social';
+
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
 const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_zXO4GY-2ou6HpvEWzeaO9Q_XT7uJkDg';
@@ -67,6 +69,7 @@ const entries = new Map();
 const cards = new WeakMap();
 const localMeasurements = new WeakMap();
 const decimal = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+let social;
 let activeModel;
 let activeCategory = 'Все';
 let visibleLimit = 24;
@@ -537,6 +540,7 @@ async function openModel(entry, push = true) {
   viewer?.dispose();
   viewer = undefined;
   activeModel = entry;
+  social?.openModel(entry);
   if (push && new URL(location.href).searchParams.get('model') !== entry.id) {
     const url = new URL(location.href);
     url.searchParams.set('model', entry.id);
@@ -677,6 +681,7 @@ function createCard(entry) {
   const meta = card.querySelector('.catalog-card-meta');
   meta.textContent = describeModel(entry);
   card.querySelector('.catalog-share').addEventListener('click', () => shareModel(entry, byId('catalog-share-status')));
+  social?.bindFavorite(card.querySelector('.favorite-button'), entry);
   card.dataset.modelId = entry.id;
   showSpecs(card.querySelector('.model-specs'), entry.metrics);
 
@@ -867,6 +872,7 @@ async function listPublicModels(restart = false) {
     for (const row of rows) entries.set(row.id, publicEntry(row));
     note(libraryStatus, '');
     if (activeModel) showRelated(activeModel);
+    social?.catalogUpdated();
   } catch {
     if (version !== catalogVersion) return;
     catalogFailed = true;
@@ -988,6 +994,7 @@ async function loadDashboard() {
 function showCatalog() {
   accountPanel.hidden = true;
   publicCatalog.hidden = false;
+  byId('requests-panel').hidden = true;
   byId('catalog-title').setAttribute('tabindex', '-1');
   byId('catalog-title').focus();
 }
@@ -995,6 +1002,7 @@ function showCatalog() {
 function showAccount() {
   if (!user) return;
   publicCatalog.hidden = true;
+  byId('requests-panel').hidden = true;
   accountPanel.hidden = false;
   byId('account-identity').textContent = user.user_metadata?.display_name || user.email;
   byId('account-heading').focus();
@@ -1004,6 +1012,7 @@ function showAccount() {
 function updateSession(session) {
   const before = user?.id;
   user = session?.user;
+  social?.sessionChanged(user);
   accountLink.textContent = user
     ? (user.user_metadata?.display_name || user.email || 'Личный кабинет')
     : 'Войти / Регистрация';
@@ -1560,3 +1569,16 @@ async function followLocation() {
 }
 window.addEventListener('popstate', followLocation);
 followLocation();
+
+social = initSocial({
+  getClient: () => supabase, getUser: () => user, getActiveModel: () => activeModel,
+  getEntries: () => entries, categories: CATEGORIES, maxFileSize: MAX_FILE_SIZE,
+  openAuth, showCatalog, showAccount, createCard, publicEntry, modelURL,
+  queueCover, saveCloudModel, listPublicModels, loadDashboard,
+  closeViewer: () => dialog.close(), cloudSetup
+});
+
+for (const entry of entries.values()) {
+  const card = cards.get(entry);
+  if (card) social.bindFavorite(card.querySelector('.favorite-button'), entry);
+}
