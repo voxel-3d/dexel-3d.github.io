@@ -4,12 +4,12 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0c0c0d">
-  <meta name="description" content="Каталог демонстрационных 3D-моделей DEXEL 3D. Вращайте и приближайте модели прямо в браузере.">
+  <meta name="description" content="STL-модели для 3D-печати. Сравните габариты, расход пластика и стоимость, скачайте STL или закажите печать в DEXEL 3D.">
   <title>Каталог 3D-моделей — DEXEL 3D</title>
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=cover-photo">
+  <link rel="stylesheet" href="style.css?v=discovery">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=cover-photo"></script>
+  <script type="module" src="script.js?v=discovery"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -46,6 +46,17 @@
         <button class="catalog-card-button library-add" type="button" id="open-add-model" aria-haspopup="dialog">Добавить модель</button>
         <p class="library-status" id="library-status" role="status"></p>
       </div>
+      <div class="catalog-filters" aria-label="Поиск и фильтры">
+        <label>Поиск моделей<input id="model-search" type="search" placeholder="Название или описание"></label>
+        <label>Сортировка<select id="catalog-sort">
+          <option value="new">Сначала новые</option>
+          <option value="views_count">Популярные (по просмотрам)</option>
+          <option value="downloads_count">Чаще скачивают</option>
+        </select></label>
+        <div id="category-filters" role="group" aria-label="Категории моделей"></div>
+      </div>
+      <p id="catalog-empty" class="library-status" role="status" hidden>Модели не найдены. Измените запрос или категорию.</p>
+      <p id="catalog-share-status" class="library-status" role="status"></p>
       <noscript><p class="catalog-noscript">Для каталога и автогенерации обложек включите JavaScript.</p></noscript>
       <div id="library-grid" class="catalog-grid"></div>
       <button id="catalog-more" class="catalog-card-button account-more" type="button" hidden>Показать ещё</button>
@@ -53,12 +64,14 @@
         <article class="catalog-card">
           <img class="catalog-card-image" width="640" height="500" alt="" decoding="async">
           <div class="catalog-card-body">
-            <h2></h2>
+            <h2><a class="model-link"></a></h2>
             <p class="catalog-card-description"></p>
             <p class="catalog-card-meta"></p>
+            <div class="model-specs"></div>
             <div class="catalog-card-actions">
-              <button class="catalog-card-button" type="button" aria-haspopup="dialog">Смотреть в 3D</button>
+              <a class="catalog-card-button open-model" aria-haspopup="dialog">Смотреть в 3D</a>
               <a class="catalog-card-button catalogue-download" download>Скачать STL</a>
+              <button class="catalog-share" type="button">Поделиться</button>
               <a class="catalog-order">Заказать печать в DEXEL 3D</a>
             </div>
           </div>
@@ -144,10 +157,10 @@
       <input id="library-title" name="title" type="text" maxlength="100" required>
       <label for="library-description">Описание</label>
       <textarea id="library-description" name="description" rows="3" maxlength="500" required></textarea>
-      <div id="cloud-model-fields" class="library-model-fields" hidden>
+      <div class="library-model-fields">
         <div><label for="library-category">Категория</label>
-        <input id="library-category" name="category" type="text" maxlength="60" placeholder="Например, декор"></div>
-        <div><label for="library-tags">Теги через запятую</label>
+        <select id="library-category" name="category"></select></div>
+        <div id="cloud-model-fields" hidden><label for="library-tags">Теги через запятую</label>
         <input id="library-tags" name="tags" type="text" maxlength="251" placeholder="ваза, интерьер"></div>
       </div>
       <div id="local-model-fields">
@@ -168,6 +181,7 @@
         <input id="cover-elevation" type="range" min="0" max="85" value="40" step="5">
       </fieldset>
       <img id="library-cover" class="library-cover" width="640" height="500" alt="Предпросмотр обложки модели" hidden>
+      <div id="upload-specs" class="model-specs"></div>
       <p id="add-model-status" class="library-status" role="status"></p>
       <div class="add-model-actions">
         <button class="button" type="submit" disabled>Добавить в каталог</button>
@@ -203,6 +217,23 @@
           <button type="button" data-view-action="reset" disabled>Сбросить ракурс</button>
         </div>
       </div>
+    </div>
+    <div class="model-details">
+      <div class="display-options">
+        <label><input id="printer-bed" type="checkbox" disabled> Показать стол принтера (260×260 мм)</label>
+        <label><input id="model-wireframe" type="checkbox" disabled> Сетка полигонов (Wireframe)</label>
+      </div>
+      <div id="viewer-specs" class="model-specs"></div>
+      <p class="estimate-note">Оценка для замкнутой модели при заполнении 25%, без учёта стенок и поддержек.</p>
+      <div class="viewer-links">
+        <a id="viewer-order" class="catalog-order">Заказать печать в DEXEL 3D</a>
+        <button id="viewer-share" type="button" class="catalog-share">Поделиться</button>
+      </div>
+      <p id="viewer-share-status" class="library-status" role="status"></p>
+      <section id="related-models" hidden>
+        <h3>Похожие модели из этой категории</h3>
+        <div id="related-grid"></div>
+      </section>
     </div>
   </dialog>
 </body>

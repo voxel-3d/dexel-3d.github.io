@@ -2,10 +2,17 @@
 const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_zXO4GY-2ou6HpvEWzeaO9Q_XT7uJkDg';
 
+// Indicative workshop tariff in RUB. Recalculated for existing models as well.
+const PRICE_PER_GRAM = 12;
+const MINIMUM_ORDER_PRICE = 200;
+const INFILL = 0.25;
+const DENSITY_G_CM3 = 1.25;
+const CATEGORIES = ['Все', 'Для дома и быта', 'Автотовары', 'Тактика и шевроны', 'Органайзеры', 'Аксессуары и подарки', 'Другое'];
+
 // Add public STL entries here. Version the file URL when replacing an existing STL.
 const publishedModels = [
   {
-    id: 'ribbed-vase',
+    id: 'ribbed-vase', category: 'Для дома и быта',
     fileUrl: 'assets/ribbed-vase.stl',
     title: 'Рельефная ваза',
     description: 'Мягкий силуэт и ритм вертикальных рёбер для сухоцветов.',
@@ -13,7 +20,7 @@ const publishedModels = [
     placeholder: 'assets/ribbed-vase.webp'
   },
   {
-    id: 'phone-stand',
+    id: 'phone-stand', category: 'Органайзеры',
     fileUrl: 'assets/phone-stand.stl',
     title: 'Подставка для телефона',
     description: 'Наклонная опора с нижним упором для рабочего стола.',
@@ -21,7 +28,7 @@ const publishedModels = [
     placeholder: 'assets/phone-stand.webp'
   },
   {
-    id: 'hex-organizer',
+    id: 'hex-organizer', category: 'Органайзеры',
     fileUrl: 'assets/hex-organizer.stl',
     title: 'Шестигранный органайзер',
     description: 'Открытый лоток для ключей, крепежа и мелочей.',
@@ -56,6 +63,16 @@ const actions = [...dialog.querySelectorAll('[data-view-action]')];
 const grid = byId('library-grid');
 const template = byId('library-card');
 const libraryStatus = byId('library-status');
+const catalogTitle = document.title;
+const canonical = document.querySelector('link[rel="canonical"]');
+const catalogURL = canonical.href;
+const entries = new Map();
+const cards = new WeakMap();
+const localMeasurements = new WeakMap();
+const decimal = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+let activeModel;
+let activeCategory = 'Все';
+let visibleLimit = 24;
 let currentLoad;
 let viewer;
 let studioRenderer;
@@ -68,6 +85,7 @@ function getSTLModules() {
 function enableActions(enabled) {
   for (const action of actions) action.disabled = !enabled;
   colorPicker.disabled = !enabled;
+  byId('printer-bed').disabled = byId('model-wireframe').disabled = !enabled;
 }
 
 function initColors(color) {
@@ -106,6 +124,74 @@ function modelDirection(THREE, azimuth = 45, elevation = 40) {
   return new THREE.Vector3(Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw));
 }
 
+// Signed tetrahedra in the original STL coordinate system (Z up, millimetres).
+function measureGeometry(geometry) {
+  geometry.computeBoundingBox();
+  const { min, max } = geometry.boundingBox;
+  const positions = geometry.getAttribute('position');
+  const index = geometry.getIndex();
+  const count = index ? index.count : positions.count;
+  let sixVolume = 0;
+  let netX = 0, netY = 0, netZ = 0, area = 0;
+  for (let i = 0; i < count; i += 3) {
+    const a = index ? index.getX(i) : i;
+    const b = index ? index.getX(i + 1) : i + 1;
+    const c = index ? index.getX(i + 2) : i + 2;
+    const ax = positions.getX(a) - min.x, ay = positions.getY(a) - min.y, az = positions.getZ(a) - min.z;
+    const bx = positions.getX(b) - min.x, by = positions.getY(b) - min.y, bz = positions.getZ(b) - min.z;
+    const cx = positions.getX(c) - min.x, cy = positions.getY(c) - min.y, cz = positions.getZ(c) - min.z;
+    const nx = (by - ay) * (cz - az) - (bz - az) * (cy - ay);
+    const ny = (bz - az) * (cx - ax) - (bx - ax) * (cz - az);
+    const nz = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
+    sixVolume += ax * nx + ay * ny + az * nz;
+    netX += nx; netY += ny; netZ += nz;
+    area += Math.sqrt(nx * nx + ny * ny + nz * nz);
+  }
+  // Nonzero net surface normal is evidence of a hole or inconsistent triangle winding.
+  const volume = Math.hypot(netX, netY, netZ) <= area * 1e-6 ? Math.abs(sixVolume) / 6000 : null;
+  return { width: max.x - min.x, depth: max.y - min.y, height: max.z - min.z, volume };
+}
+
+function validMetrics(metrics) {
+  return metrics && ['width', 'depth', 'height'].every(key =>
+    Number.isFinite(metrics[key]) && metrics[key] >= 0) &&
+    (metrics.volume === null || (Number.isFinite(metrics.volume) && metrics.volume >= 0));
+}
+
+function showSpecs(container, metrics) {
+  container.replaceChildren();
+  if (!validMetrics(metrics)) return;
+  const { width, depth, height, volume } = metrics;
+  const dimensions = document.createElement('span');
+  dimensions.textContent = 'Ш × Г × В: ' + [width, depth, height].map(v => decimal.format(v)).join(' × ') + ' мм';
+  container.append(dimensions);
+  const material = document.createElement('span');
+  container.append(material);
+  if (!volume) {
+    material.textContent = 'Объём не определён. Проверьте замкнутость сетки.';
+    return;
+  }
+  const grams = volume * DENSITY_G_CM3 * INFILL;
+  const price = Math.max(MINIMUM_ORDER_PRICE, Math.ceil(grams * PRICE_PER_GRAM));
+  material.textContent = 'Объём: ' + decimal.format(volume) + ' см³ · Пластик: ≈ ' + decimal.format(grams) + ' г';
+  const estimate = document.createElement('strong');
+  estimate.textContent = 'Печать на заказ: от ' + number.format(price) + ' ₽';
+  container.append(estimate);
+}
+
+async function readMetrics(entry) {
+  if (entry.coverTask) await entry.coverTask;
+  if (validMetrics(entry.metrics)) return entry.metrics;
+  if (entry.file && localMeasurements.has(entry.file)) {
+    entry.metrics = localMeasurements.get(entry.file);
+    return entry.metrics;
+  }
+  const [THREE, { STLLoader }] = await getSTLModules();
+  const mesh = await loadSTL(THREE, STLLoader, entry);
+  disposeModel(mesh);
+  return entry.metrics;
+}
+
 async function loadSTL(THREE, STLLoader, entry, signal) {
   let bytes;
   if (entry.file) {
@@ -121,6 +207,7 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
   }
 
   let geometry;
+  let originalRadius;
   try {
     const header = new Uint8Array(bytes, 0, Math.min(12, bytes.byteLength));
     const startsWithSolid = new TextDecoder().decode(header).trimStart().startsWith('solid');
@@ -134,6 +221,9 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
     geometry.computeBoundingSphere();
     const { center, radius } = geometry.boundingSphere;
     if (!Number.isFinite(radius) || radius <= 0) throw new Error();
+    originalRadius = radius;
+    entry.metrics = measureGeometry(geometry);
+    if (entry.file) localMeasurements.set(entry.file, entry.metrics);
     geometry.translate(-center.x, -center.y, -center.z);
     geometry.scale(1 / radius, 1 / radius, 1 / radius);
     // STL is Z-up. Three.js is Y-up.
@@ -143,9 +233,11 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
     throw new Error('Не удалось прочитать геометрию. Проверьте STL-файл.');
   }
 
-  return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
+  const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     color: entry.color, roughness: .64, metalness: .06
   }));
+  mesh.userData.mmPerUnit = originalRadius;
+  return mesh;
 }
 
 function studioScene(THREE, renderer, model) {
@@ -305,6 +397,16 @@ function createViewer(THREE, OrbitControls, renderer, model, imageAlt, onContext
 
   const scene = studioScene(THREE, renderer, model);
 
+  const bedSize = 260 / model.userData.mmPerUnit;
+  const bed = new THREE.GridHelper(bedSize, 26, 0xd4af37, 0x99824c);
+  bed.position.set(sphere.center.x, bounds.min.y, sphere.center.z);
+  bed.material.transparent = true;
+  bed.material.opacity = .45;
+  bed.material.depthWrite = false;
+  bed.visible = false;
+  scene.add(bed);
+  const bedRadius = Math.max(sphere.radius, Math.hypot(bedSize / Math.sqrt(2), bed.position.y) + sphere.center.length());
+
   const camera = new THREE.PerspectiveCamera(38, 1, sphere.radius * .03, sphere.radius * 150);
   const direction = modelDirection(THREE);
   camera.position.copy(direction).multiplyScalar(4 * sphere.radius);
@@ -331,11 +433,13 @@ function createViewer(THREE, OrbitControls, renderer, model, imageAlt, onContext
     camera.aspect = width / height;
     const halfHeight = THREE.MathUtils.degToRad(camera.fov / 2);
     const halfWidth = Math.atan(Math.tan(halfHeight) * camera.aspect);
-    const nextFit = 1.12 * sphere.radius / Math.sin(Math.min(halfHeight, halfWidth));
+    const fitRadius = bed.visible ? bedRadius : sphere.radius;
+    const nextFit = 1.12 * fitRadius / Math.sin(Math.min(halfHeight, halfWidth));
     if (fitDistance) camera.position.multiplyScalar(nextFit / fitDistance);
     else camera.position.copy(direction).multiplyScalar(nextFit);
     fitDistance = nextFit;
     controls.maxDistance = Math.max(sphere.radius * 40, fitDistance * 2);
+    camera.far = Math.max(sphere.radius * 150, fitRadius * 150);
     camera.updateProjectionMatrix();
     renderer.setSize(width, height, false);
     controls.update();
@@ -383,6 +487,7 @@ function createViewer(THREE, OrbitControls, renderer, model, imageAlt, onContext
   const observer = new ResizeObserver(resize);
   function releaseRenderer() {
     observer.disconnect();
+    bed.dispose();
     controls.dispose();
     cancelAnimationFrame(frame);
     surface.removeEventListener('webglcontextlost', onContextLost);
@@ -395,6 +500,15 @@ function createViewer(THREE, OrbitControls, renderer, model, imageAlt, onContext
     resize();
     return {
       zoom, reset,
+      setBed(visible) {
+        bed.visible = visible;
+        fitDistance = 0;
+        resize();
+      },
+      setWireframe(enabled) {
+        model.material.wireframe = enabled;
+        render();
+      },
       setColor(color) {
         model.material.color.set(color);
         render();
@@ -424,7 +538,27 @@ function showError(message) {
   status.textContent = message;
 }
 
-async function openModel(entry) {
+async function openModel(entry, push = true) {
+  if (dialog.open && activeModel?.id === entry.id) return;
+  currentLoad?.abort();
+  viewer?.dispose();
+  viewer = undefined;
+  activeModel = entry;
+  if (push && new URL(location.href).searchParams.get('model') !== entry.id) {
+    const url = new URL(location.href);
+    url.searchParams.set('model', entry.id);
+    const depth = !dialog.open ? 1 : history.state?.dexelDepth ? history.state.dexelDepth + 1 : 0;
+    history.pushState({ ...history.state, dexelDepth: depth }, '', url);
+  }
+  document.title = entry.title + ' — 3D-модель скачать и заказать печать | DEXEL 3D';
+  canonical.href = modelURL(entry, catalogURL);
+  byId('viewer-share-status').textContent = '';
+  byId('printer-bed').checked = byId('model-wireframe').checked = false;
+  showSpecs(byId('viewer-specs'), entry.metrics);
+  byId('viewer-order').href = orderURL(entry);
+  showRelated(entry);
+  logModelEvent(entry, 'view');
+  preview.removeAttribute('src');
   const cover = entry.cover || entry.placeholder;
   if (cover) preview.src = cover;
   preview.alt = entry.title;
@@ -434,7 +568,8 @@ async function openModel(entry) {
   initColors(entry.color);
   status.textContent = 'Загружаем 3D-модель…';
   enableActions(false);
-  dialog.showModal();
+  if (!dialog.open) dialog.showModal();
+  dialog.scrollTop = 0;
 
   const load = new AbortController();
   currentLoad = load;
@@ -446,6 +581,9 @@ async function openModel(entry) {
     ]);
     model = await loadSTL(THREE, STLLoader, entry, load.signal);
     load.signal.throwIfAborted();
+    showSpecs(byId('viewer-specs'), entry.metrics);
+    const card = cards.get(entry);
+    if (card) showSpecs(card.querySelector('.model-specs'), entry.metrics);
     renderer = await selectRenderer(THREE);
     load.signal.throwIfAborted();
     viewer = createViewer(THREE, OrbitControls, renderer, model, entry.title, () => {
@@ -455,30 +593,99 @@ async function openModel(entry) {
     status.textContent = '';
     enableActions(true);
   } catch (error) {
-    if (!viewer) {
-      disposeRenderer(renderer);
-      if (model) disposeModel(model);
-    }
+    disposeRenderer(renderer);
+    if (model) disposeModel(model);
     if (!load.signal.aborted) {
       showError(error instanceof Error ? error.message : '3D-модель не открылась.');
     }
   }
 }
 
-function addCard(entry, first = false) {
+function modelURL(entry, base = new URL(location.pathname, location.origin)) {
+  const url = new URL(base);
+  url.searchParams.set('model', entry.id);
+  return url.href;
+}
+
+function bindModelLink(link, entry) {
+  link.href = modelURL(entry);
+  link.addEventListener('click', event => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    openModel(entry);
+  });
+}
+
+function orderURL(entry) {
+  return '../#request?' + new URLSearchParams({ model: entry.title });
+}
+
+async function recordOrder(event, entry) {
+  if (!entry.remote) return;
+  const recorded = logModelEvent(entry, 'order');
+  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const href = event.currentTarget.href;
+  await Promise.race([recorded, new Promise(resolve => setTimeout(resolve, 1000))]);
+  location.assign(href);
+}
+
+async function shareModel(entry, message) {
+  const url = modelURL(entry);
+  try {
+    await navigator.clipboard.writeText(url);
+    clearTimeout(message.dismissTimer);
+    message.textContent = entry.file ? 'Ссылка скопирована. Локальная модель доступна в этом браузере.' : 'Ссылка скопирована';
+    message.dismissTimer = setTimeout(() => { message.textContent = ''; }, 3500);
+  } catch {
+    window.prompt('Скопируйте ссылку на модель', url);
+  }
+}
+
+function categoryOf(entry) {
+  return CATEGORIES.includes(entry.category) ? entry.category : 'Другое';
+}
+
+function showRelated(entry) {
+  const pool = [...entries.values()].filter(other => other.id !== entry.id && categoryOf(other) === categoryOf(entry));
+  const related = byId('related-grid');
+  related.replaceChildren();
+  for (let i = 0; i < Math.min(3, pool.length); i++) {
+    const j = i + Math.floor(Math.random() * (pool.length - i));
+    [pool[i], pool[j]] = [pool[j], pool[i]];
+    const other = pool[i];
+    const link = document.createElement('a');
+    link.className = 'related-card';
+    const src = other.cover || other.placeholder;
+    if (src) {
+      const image = new Image();
+      image.alt = '';
+      image.src = src;
+      link.append(image);
+    }
+    link.append(other.title);
+    bindModelLink(link, other);
+    related.append(link);
+  }
+  byId('related-models').hidden = !related.childElementCount;
+}
+
+function createCard(entry) {
   const card = template.content.firstElementChild.cloneNode(true);
   const image = card.querySelector('img');
   image.alt = entry.title + ' — 3D-превью';
   const cover = entry.cover || entry.placeholder;
   if (cover) image.src = cover;
-  card.querySelector('h2').textContent = entry.title;
+  const link = card.querySelector('.model-link');
+  link.textContent = entry.title;
+  bindModelLink(link, entry);
+  bindModelLink(card.querySelector('.open-model'), entry);
   card.querySelector('.catalog-card-description').textContent = entry.description;
   const meta = card.querySelector('.catalog-card-meta');
   meta.textContent = describeModel(entry);
-  card.querySelector('button').addEventListener('click', () => {
-    openModel(entry);
-    logModelEvent(entry, 'view', meta);
-  });
+  card.querySelector('.catalog-share').addEventListener('click', () => shareModel(entry, byId('catalog-share-status')));
+  card.dataset.modelId = entry.id;
+  showSpecs(card.querySelector('.model-specs'), entry.metrics);
 
   const download = card.querySelector('.catalogue-download');
   const fileName = entry.remote
@@ -487,7 +694,7 @@ function addCard(entry, first = false) {
   download.download = fileName;
   if (entry.remote) {
     download.href = cloudFile(entry.remote.stl_path, fileName);
-    download.addEventListener('click', () => logModelEvent(entry, 'download', meta));
+    download.addEventListener('click', () => logModelEvent(entry, 'download'));
   } else if (entry.downloadUrl || entry.fileUrl) {
     download.href = entry.downloadUrl || entry.fileUrl;
     if (entry.downloadUrl) {
@@ -497,22 +704,56 @@ function addCard(entry, first = false) {
   } else {
     download.href = URL.createObjectURL(entry.file);
   }
-  const params = new URLSearchParams({ model: entry.title });
   const order = card.querySelector('.catalog-order');
-  order.href = '../#request?' + params.toString();
-  if (entry.remote) {
-    order.addEventListener('click', async event => {
-      const recorded = logModelEvent(entry, 'order', meta);
-      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-      event.preventDefault();
-      await Promise.race([recorded, new Promise(resolve => setTimeout(resolve, 1000))]);
-      window.location.assign(order.href);
-    });
-    card.dataset.cloudModel = entry.id;
+  order.href = orderURL(entry);
+  order.addEventListener('click', event => recordOrder(event, entry));
+  return card;
+}
+
+let measurementQueue = Promise.resolve();
+const measureVisible = new IntersectionObserver(records => {
+  for (const record of records) {
+    if (!record.isIntersecting) continue;
+    const card = record.target;
+    measureVisible.unobserve(card);
+    const entry = entries.get(card.dataset.modelId);
+    if (!entry || validMetrics(entry.metrics)) continue;
+    measurementQueue = measurementQueue.then(async () => {
+      if (!card.isConnected) return;
+      const specs = card.querySelector('.model-specs');
+      try { showSpecs(specs, await readMetrics(entry)); }
+      catch { specs.textContent = 'Расчёт недоступен. Откройте модель для повторной попытки.'; }
+    }).catch(() => {});
   }
-  if (first) grid.prepend(card);
-  else grid.append(card);
-  return image;
+}, { rootMargin: '160px' });
+
+function renderCatalog(reset = false) {
+  if (reset) visibleLimit = PAGE_SIZE;
+  const search = byId('model-search').value.trim().toLocaleLowerCase('ru');
+  const sort = byId('catalog-sort').value;
+  const matches = [...entries.values()].filter(entry =>
+    (activeCategory === 'Все' || categoryOf(entry) === activeCategory) &&
+    (entry.title + ' ' + entry.description).toLocaleLowerCase('ru').includes(search));
+  matches.sort((a,b) => {
+    const delta = sort === 'new' ? 0 : (b.remote?.[sort] || 0) - (a.remote?.[sort] || 0);
+    return delta || (b.createdAt || 0) - (a.createdAt || 0);
+  });
+  const visible = matches.slice(0, visibleLimit).map(entry => {
+    let card = cards.get(entry);
+    if (!card) {
+      card = createCard(entry);
+      cards.set(entry, card);
+    }
+    if (!validMetrics(entry.metrics)) measureVisible.observe(card);
+    else showSpecs(card.querySelector('.model-specs'), entry.metrics);
+    return card;
+  });
+  if (grid.children.length !== visible.length || visible.some((card,i) => grid.children[i] !== card)) {
+    for (const card of grid.children) if (!visible.includes(card)) measureVisible.unobserve(card);
+    grid.replaceChildren(...visible);
+  }
+  byId('catalog-empty').hidden = listing || matches.length !== 0;
+  catalogMore.hidden = !catalogFailed && matches.length <= visibleLimit;
 }
 
 for (const button of actions) {
@@ -525,7 +766,25 @@ for (const button of actions) {
 
 colorPicker.addEventListener('change', () => viewer?.setColor(colorPicker.value));
 
+byId('printer-bed').addEventListener('change', event => viewer?.setBed(event.target.checked));
+byId('model-wireframe').addEventListener('change', event => viewer?.setWireframe(event.target.checked));
+byId('viewer-share').addEventListener('click', () => shareModel(activeModel, byId('viewer-share-status')));
+byId('viewer-order').addEventListener('click', event => recordOrder(event, activeModel));
+
 dialog.addEventListener('close', () => {
+  if (dialog.open) return;
+  const wasActive = activeModel;
+  activeModel = undefined;
+  document.title = catalogTitle;
+  canonical.href = catalogURL;
+  const url = new URL(location.href);
+  if (wasActive && url.searchParams.get('model') === wasActive.id) {
+    if (history.state?.dexelDepth) history.go(-history.state.dexelDepth);
+    else {
+      url.searchParams.delete('model');
+      history.replaceState(history.state, '', url);
+    }
+  }
   currentLoad?.abort();
   viewer?.dispose();
   viewer = undefined;
@@ -554,13 +813,13 @@ const authPassword = byId('auth-password');
 let supabase;
 let user;
 let register = false;
-let publicOffset = 0;
+let catalogFailed = false;
 let listing = false;
 let catalogVersion = 0;
 let dashboardVersion = 0;
 let owned = [];
 let authTarget = 'account';
-const publicEntries = new Map();
+
 const pendingEvents = new Map();
 
 function note(element, message, error = false) {
@@ -570,10 +829,10 @@ function note(element, message, error = false) {
 
 function describeModel(entry) {
   const row = entry.remote;
-  if (!row) return entry.file ? 'Локальная модель' : 'Автор: DEXEL 3D · демомодель';
+  if (!row) return (entry.file ? 'Локальная модель' : 'Автор: DEXEL 3D') + ' · ' + categoryOf(entry);
   return [
     'Автор: ' + row.author_name,
-    row.category,
+    categoryOf(entry),
     row.tags.map(tag => '#' + tag).join(' '),
     'Просмотры: ' + number.format(row.views_count),
     'Скачивания: ' + number.format(row.downloads_count)
@@ -586,7 +845,8 @@ function cloudFile(path, download) {
 
 function publicEntry(row) {
   return {
-    id: row.id, title: row.title, description: row.description,
+    id: row.id, title: row.title, description: row.description, category: row.category,
+    createdAt: Date.parse(row.created_at), metrics: row.geometry_metrics,
     color: '#d4af37', fileUrl: cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
   };
 }
@@ -594,48 +854,46 @@ function publicEntry(row) {
 async function listPublicModels(restart = false) {
   if (!supabase) return;
   if (listing && !restart) return;
-  if (restart) publicOffset = 0;
   listing = true;
-  const offset = publicOffset;
+  catalogFailed = false;
   const version = ++catalogVersion;
-  catalogMore.disabled = true;
+  const rows = [];
   try {
-    const { data, error } = await supabase.from('models').select('*').eq('deleting', false)
-      .order('created_at', { ascending: false }).order('id').range(offset, offset + PAGE_SIZE - 1);
-    if (version !== catalogVersion) return;
-    if (error) throw error;
-    if (restart) {
-      for (const card of grid.querySelectorAll('[data-cloud-model]')) card.remove();
-      publicEntries.clear();
+    // Fetch metadata only; page the visible cards and load older STL geometry on demand.
+    const batchSize = 200;
+    for (let offset = 0;; offset += batchSize) {
+      const { data, error } = await supabase.from('models').select('*').eq('deleting', false)
+        .order('created_at', { ascending: false }).order('id').range(offset, offset + batchSize - 1);
+      if (version !== catalogVersion) return;
+      if (error) throw error;
+      rows.push(...data);
+      if (data.length < batchSize) break;
     }
-    for (const row of data) {
-      if (publicEntries.has(row.id)) continue;
-      const entry = publicEntry(row);
-      publicEntries.set(row.id, entry);
-      addCard(entry);
-    }
-    publicOffset += data.length;
-    catalogMore.hidden = data.length < PAGE_SIZE;
+    const available = new Set(rows.map(row => row.id));
+    for (const [id, entry] of entries) if (entry.remote && !available.has(id)) entries.delete(id);
+    for (const row of rows) entries.set(row.id, publicEntry(row));
     note(libraryStatus, '');
+    if (activeModel) showRelated(activeModel);
   } catch {
     if (version !== catalogVersion) return;
-    note(libraryStatus, 'Общий каталог временно недоступен. Можно открыть демонстрационные модели.', true);
-    catalogMore.textContent = 'Повторить загрузку';
-    catalogMore.hidden = false;
+    catalogFailed = true;
+    note(libraryStatus, 'Не удалось загрузить общий каталог. Можно повторить загрузку.', true);
   } finally {
     if (version === catalogVersion) {
       listing = false;
-      catalogMore.disabled = false;
+      catalogMore.textContent = catalogFailed ? 'Повторить загрузку' : 'Показать ещё';
+      renderCatalog();
     }
   }
 }
 
 catalogMore.addEventListener('click', () => {
-  catalogMore.textContent = 'Показать ещё';
-  listPublicModels();
+  if (catalogFailed) { listPublicModels(true).then(followLocation); return; }
+  visibleLimit += PAGE_SIZE;
+  renderCatalog();
 });
 
-function logModelEvent(entry, kind, meta) {
+function logModelEvent(entry, kind) {
   if (!entry.remote || !supabase) return Promise.resolve();
   const modelId = entry.id;
   const previous = pendingEvents.get(modelId) || Promise.resolve();
@@ -644,13 +902,13 @@ function logModelEvent(entry, kind, meta) {
     if (error || !data?.[0]) return;
     const counters = data[0];
     Object.assign(entry.remote, counters);
-    meta.textContent = describeModel(entry);
-    const active = publicEntries.get(modelId);
-    if (active && active !== entry) {
+    const active = entries.get(modelId);
+    if (active?.remote) {
       Object.assign(active.remote, counters);
-      const activeMeta = grid.querySelector('[data-cloud-model="' + modelId + '"] .catalog-card-meta');
+      const activeMeta = cards.get(active)?.querySelector('.catalog-card-meta');
       if (activeMeta) activeMeta.textContent = describeModel(active);
     }
+    if (byId('catalog-sort').value !== 'new') renderCatalog();
     const item = owned.find(row => row.id === modelId);
     if (item) {
       Object.assign(item, counters);
@@ -900,6 +1158,7 @@ function setAngleReadouts() {
 function clearEditorPreview() {
   previewRevision++;
   draft = undefined;
+  byId('upload-specs').replaceChildren();
   coverImage.hidden = true;
   coverImage.removeAttribute('src');
   coverDownload.hidden = true;
@@ -937,7 +1196,8 @@ function openEditor(row) {
   if (row) {
     byId('library-title').value = row.title;
     byId('library-description').value = row.description;
-    byId('library-category').value = row.category;
+    byId('library-category').value = categoryOf(row);
+    showSpecs(byId('upload-specs'), row.geometry_metrics);
     byId('library-tags').value = row.tags.join(', ');
     azimuthInput.value = row.cover_azimuth;
     elevationInput.value = row.cover_elevation;
@@ -1002,7 +1262,6 @@ async function renderEditorCover() {
   const selection = {
     file,
     fileUrl: !file && editing ? cloudFile(editing.stl_path) : undefined,
-    customPhoto: Boolean(photo),
     color: '#d4af37',
     azimuth: Number(azimuthInput.value),
     elevation: Number(elevationInput.value)
@@ -1012,6 +1271,9 @@ async function renderEditorCover() {
   try {
     const cover = photo ? await photoCover(photo) : await queueCover(selection, active);
     if (!active()) return;
+    if (photo && file) selection.metrics = await readMetrics(selection);
+    if (!active()) return;
+    showSpecs(byId('upload-specs'), selection.metrics || editing?.geometry_metrics);
     const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
     draft = { ...selection, cover, png: new Blob([bytes], { type: 'image/png' }) };
     coverImage.src = cover;
@@ -1023,7 +1285,10 @@ async function renderEditorCover() {
     addButton.disabled = !file && !editing;
     note(addStatus, addButton.disabled ? 'Фото готово. Добавьте STL-файл модели.' : 'Обложка готова.');
   } catch (error) {
-    if (active()) note(addStatus, error instanceof Error ? error.message : 'Не удалось создать обложку.', true);
+    if (active()) {
+      showSpecs(byId('upload-specs'), selection.metrics);
+      note(addStatus, error instanceof Error ? error.message : 'Не удалось создать обложку.', true);
+    }
   }
 }
 
@@ -1063,6 +1328,7 @@ async function saveCloudModel(fields, selection, row, account) {
   const payload = { ...fields };
   try {
     if (selection?.file) {
+      payload.geometry_metrics = selection.metrics;
       payload.stl_path = prefix + '.stl';
       await upload(payload.stl_path, selection.file, 'model/stl');
     }
@@ -1080,16 +1346,24 @@ async function saveCloudModel(fields, selection, row, account) {
   let saved;
   try {
     const table = supabase.from('models');
-    const change = row
-      ? table.update(payload).eq('id', id).eq('user_id', account.id).eq('updated_at', row.updated_at).eq('deleting', false)
-      : table.insert({ id, ...payload });
-    const { data, error } = await change.select('id, stl_path, cover_path').maybeSingle();
+    const write = () => {
+      const change = row
+        ? table.update(payload).eq('id', id).eq('user_id', account.id).eq('updated_at', row.updated_at).eq('deleting', false)
+        : table.insert({ id, ...payload });
+      return change.select('id, stl_path, cover_path').maybeSingle();
+    };
+    let { data, error } = await write();
+    if (error?.code === 'PGRST204' && error.message.includes('geometry_metrics') && 'geometry_metrics' in payload) {
+      // Existing installations can still publish before the optional migration runs.
+      delete payload.geometry_metrics;
+      ({ data, error } = await write());
+    }
     if (error || !data) throw new Error();
     saved = data;
   } catch {
     // Resolve an interrupted response before removing any file that may have been committed.
     const { data: current, error } = await supabase.from('models')
-      .select('id, title, description, category, tags, stl_path, cover_path, cover_azimuth, cover_elevation')
+      .select('*')
       .eq('id', id).eq('user_id', account.id).eq('deleting', false).maybeSingle();
     const matches = current && Object.entries(payload).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
     const filesMatch = current && uploaded.length && uploaded.every(path => path === current.stl_path || path === current.cover_path);
@@ -1120,14 +1394,15 @@ async function saveLocalModel(data, fields) {
     downloadUrl = url.href;
   }
   const { file, cover, color, azimuth, elevation } = draft;
-  const model = { file, cover, color, azimuth, elevation, ...fields, downloadUrl, id: crypto.randomUUID(), createdAt: Date.now() };
+  const model = { file, cover, color, azimuth, elevation, metrics: draft.metrics, ...fields, downloadUrl, id: crypto.randomUUID(), createdAt: Date.now() };
   let persisted = true;
   try {
     await libraryTransaction('readwrite', store => store.put(model));
   } catch {
     persisted = false;
   }
-  addCard(model, true);
+  entries.set(model.id, model);
+  renderCatalog();
   note(libraryStatus, persisted ? 'Модель добавлена в этом браузере.' : 'Модель доступна до закрытия страницы.');
 }
 
@@ -1135,13 +1410,12 @@ addForm.addEventListener('submit', async event => {
   event.preventDefault();
   if (saving || addButton.disabled || (!editing && !draft?.file)) return;
   const data = new FormData(addForm);
-  const fields = { title: data.get('title').trim(), description: data.get('description').trim() };
+  const fields = { title: data.get('title').trim(), description: data.get('description').trim(), category: data.get('category') };
   if (!fields.title || !fields.description) {
     note(addStatus, 'Укажите название и описание модели.', true);
     return;
   }
   if (supabase) {
-    fields.category = data.get('category').trim();
     fields.tags = [...new Set(data.get('tags').split(',').map(tag => tag.trim().replace(/^#+/, '')).filter(Boolean))];
     if (fields.tags.length > 8) {
       note(addStatus, 'Можно указать до восьми тегов.', true);
@@ -1158,10 +1432,6 @@ addForm.addEventListener('submit', async event => {
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
-    if (draft?.customPhoto && draft.file) {
-      const [THREE, { STLLoader }] = await getSTLModules();
-      disposeModel(await loadSTL(THREE, STLLoader, draft));
-    }
     if (supabase) {
       await saveCloudModel(fields, draft, editing, user);
       listPublicModels(true);
@@ -1227,20 +1497,73 @@ deleteDialog.addEventListener('close', async () => {
   }
 });
 
+for (const category of CATEGORIES) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.textContent = category;
+  button.setAttribute('aria-pressed', String(category === activeCategory));
+  button.addEventListener('click', () => {
+    activeCategory = category;
+    for (const option of byId('category-filters').children) option.setAttribute('aria-pressed', String(option === button));
+    renderCatalog(true);
+  });
+  byId('category-filters').append(button);
+  byId('library-category').add(new Option(category, category, category === 'Другое', category === 'Другое'));
+}
+byId('model-search').addEventListener('input', () => renderCatalog(true));
+byId('catalog-sort').addEventListener('change', () => renderCatalog(true));
+
 for (const model of publishedModels) {
   model.cover = cachedCover(model);
-  const image = addCard(model);
+  entries.set(model.id, model);
   if (model.cover) continue;
-  queueCover(model).then(cover => {
+  model.coverTask = queueCover(model).then(cover => {
     model.cover = cover;
-    image.src = cover;
+    const card = cards.get(model);
+    if (card) {
+      card.querySelector('img').src = cover;
+      showSpecs(card.querySelector('.model-specs'), model.metrics);
+    }
     rememberCover(model, cover);
-  }).catch(() => {
-    if (!model.placeholder) image.alt = 'Обложка модели недоступна';
-  });
+  }).catch(() => {}).finally(() => { delete model.coverTask; });
 }
-
-libraryTransaction('readonly', store => store.getAll()).then(entries => {
-  entries.sort((a, b) => a.createdAt - b.createdAt);
-  for (const entry of entries) addCard(entry, true);
+renderCatalog();
+const localReady = libraryTransaction('readonly', store => store.getAll()).then(models => {
+  for (const model of models) entries.set(model.id, model);
+  renderCatalog();
+  if (activeModel) showRelated(activeModel);
 }).catch(() => {});
+
+async function followLocation() {
+  const id = new URL(location.href).searchParams.get('model');
+  if (!id) {
+    if (dialog.open) dialog.close();
+    return;
+  }
+  if (!entries.has(id)) {
+    await Promise.all([localReady, cloudSetup]);
+    if (new URL(location.href).searchParams.get('model') !== id) return;
+  }
+  let entry = entries.get(id);
+  let lookupFailed = false;
+  if (!entry && supabase && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+    try {
+      const { data, error } = await supabase.from('models').select('*').eq('id', id).eq('deleting', false).maybeSingle();
+      if (error) throw error;
+      if (new URL(location.href).searchParams.get('model') !== id) return;
+      if (data) {
+        entry = entries.get(id) || publicEntry(data);
+        entries.set(id, entry);
+      }
+    } catch { lookupFailed = true; }
+  }
+  if (new URL(location.href).searchParams.get('model') !== id) return;
+  if (entry) openModel(entry, false);
+  else {
+    if (dialog.open) dialog.close();
+    note(libraryStatus, catalogFailed || lookupFailed ? 'Не удалось открыть модель. Повторите загрузку каталога.' :
+      'Модель недоступна по этой ссылке. Локальные модели открываются только в браузере автора.', true);
+  }
+}
+window.addEventListener('popstate', followLocation);
+followLocation();
