@@ -28,47 +28,69 @@ function disposeModel(model) {
   for (const resource of disposable) resource.dispose();
 }
 
-function createViewer(THREE, OrbitControls, model, imageAlt, onContextLost) {
+async function selectRenderer(THREE) {
+  const canvas = document.createElement('canvas');
+  const context = canvas.getContext('webgl2', { antialias: true, alpha: false });
+  if (context) {
+    const renderer = new THREE.WebGLRenderer({ canvas, context, antialias: true });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.25;
+    return renderer;
+  }
+
+  const { SVGRenderer } = await import('three/addons/renderers/SVGRenderer.js');
+  const renderer = new SVGRenderer();
+  renderer.setPrecision(1);
+  return renderer;
+}
+
+function createViewer(THREE, OrbitControls, renderer, model, imageAlt, onContextLost) {
   const bounds = new THREE.Box3().setFromObject(model);
   const sphere = bounds.getBoundingSphere(new THREE.Sphere());
   if (!Number.isFinite(sphere.radius) || sphere.radius <= 0) {
     throw new Error('Пустая модель');
   }
 
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.25;
-  const canvas = renderer.domElement;
-  canvas.tabIndex = 0;
-  canvas.setAttribute('aria-label', imageAlt + '. Интерактивная 3D-модель.');
+  const surface = renderer.domElement;
+  surface.classList.add('model-surface');
+  surface.setAttribute('tabindex', '0');
+  surface.setAttribute('aria-label', imageAlt + '. Интерактивная 3D-модель.');
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x151713);
   model.position.sub(sphere.center);
   scene.add(model);
-  scene.add(new THREE.HemisphereLight(0xfff5df, 0x83705c, 2.1));
+  const webgl = renderer.isWebGLRenderer;
+  scene.add(webgl ? new THREE.HemisphereLight(0xfff5df, 0x83705c, 2.1) : new THREE.AmbientLight(0xd4cbb9));
 
-  const key = new THREE.DirectionalLight(0xffe5ba, 3.1);
+  const key = new THREE.DirectionalLight(0xffe5ba, webgl ? 3.1 : .73);
   key.position.set(-3, 5, 4);
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0xbad3ff, 1.2);
+  const fill = new THREE.DirectionalLight(0xbad3ff, webgl ? 1.2 : .26);
   fill.position.set(4, 2, 1);
   scene.add(fill);
-  const rim = new THREE.DirectionalLight(0xffcc8d, 2.2);
+  const rim = new THREE.DirectionalLight(0xffcc8d, webgl ? 2.2 : .44);
   rim.position.set(2, 3, -4);
   scene.add(rim);
 
   const camera = new THREE.PerspectiveCamera(38, 1, sphere.radius * .03, sphere.radius * 150);
   const direction = new THREE.Vector3(1, .65, 1.35).normalize();
   camera.position.copy(direction).multiplyScalar(4 * sphere.radius);
-  const controls = new OrbitControls(camera, canvas);
+  const controls = new OrbitControls(camera, surface);
   controls.enablePan = false;
   controls.minDistance = sphere.radius * 1.06;
   controls.maxDistance = sphere.radius * 40;
   controls.zoomSpeed = .8;
 
-  const render = () => renderer.render(scene, camera);
+  let frame = 0;
+  function render() {
+    if (frame) return;
+    frame = requestAnimationFrame(() => {
+      frame = 0;
+      renderer.render(scene, camera);
+    });
+  }
   controls.addEventListener('change', render);
 
   let fitDistance = 0;
@@ -107,7 +129,7 @@ function createViewer(THREE, OrbitControls, model, imageAlt, onContextLost) {
     ArrowLeft: [-.13, 0], ArrowRight: [.13, 0],
     ArrowUp: [0, -.13], ArrowDown: [0, .13]
   };
-  canvas.addEventListener('keydown', event => {
+  surface.addEventListener('keydown', event => {
     const shift = arrows[event.key];
     if (shift) {
       orbit.setFromVector3(camera.position);
@@ -125,27 +147,38 @@ function createViewer(THREE, OrbitControls, model, imageAlt, onContextLost) {
     }
     event.preventDefault();
   });
-  canvas.addEventListener('webglcontextlost', onContextLost, { once: true });
+  surface.addEventListener('webglcontextlost', onContextLost, { once: true });
 
   const observer = new ResizeObserver(resize);
   function releaseRenderer() {
     observer.disconnect();
     controls.dispose();
-    canvas.removeEventListener('webglcontextlost', onContextLost);
-    renderer.dispose();
-    renderer.forceContextLoss();
-    canvas.remove();
+    cancelAnimationFrame(frame);
+    surface.removeEventListener('webglcontextlost', onContextLost);
+    surface.remove();
   }
 
   try {
-    stage.append(canvas);
+    stage.append(surface);
     observer.observe(stage);
     resize();
-    return { zoom, reset, dispose() { releaseRenderer(); disposeModel(model); } };
+    return {
+      zoom, reset,
+      dispose() {
+        releaseRenderer();
+        disposeRenderer(renderer);
+        disposeModel(model);
+      }
+    };
   } catch (error) {
     releaseRenderer();
     throw error;
   }
+}
+
+function disposeRenderer(renderer) {
+  renderer?.dispose?.();
+  renderer?.forceContextLoss?.();
 }
 
 function showError(message) {
@@ -171,6 +204,7 @@ async function openModel(button) {
   const load = new AbortController();
   currentLoad = load;
   let model;
+  let renderer;
   try {
     const [THREE, { OrbitControls }, { GLTFLoader }] = await Promise.all([
       import('three'),
@@ -187,14 +221,23 @@ async function openModel(button) {
       disposeModel(model);
       return;
     }
-    viewer = createViewer(THREE, OrbitControls, model, image.alt, () => {
+    renderer = await selectRenderer(THREE);
+    if (load.signal.aborted) {
+      disposeRenderer(renderer);
+      disposeModel(model);
+      return;
+    }
+    viewer = createViewer(THREE, OrbitControls, renderer, model, image.alt, () => {
       showError('3D-просмотр прервался. Закройте окно и откройте его снова.');
     });
     preview.hidden = true;
     status.textContent = '';
     enableActions(true);
   } catch {
-    if (model && !viewer) disposeModel(model);
+    if (!viewer) {
+      disposeRenderer(renderer);
+      if (model) disposeModel(model);
+    }
     if (!load.signal.aborted) showError('3D-модель не открылась. Доступно статичное превью.');
   }
 }
