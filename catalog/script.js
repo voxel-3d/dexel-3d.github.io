@@ -525,6 +525,7 @@ function clearCover() {
   coverImage.hidden = true;
   coverImage.removeAttribute('src');
   coverDownload.hidden = true;
+  if (coverDownload.hasAttribute('href')) URL.revokeObjectURL(coverDownload.href);
   coverDownload.removeAttribute('href');
   addButton.disabled = true;
 }
@@ -551,11 +552,13 @@ fileInput.addEventListener('change', async () => {
   try {
     const cover = await queueCover(selection, active);
     if (!active()) return;
+    const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
+    const png = new Blob([bytes], { type: 'image/png' });
 
     selection.cover = cover;
     coverImage.src = cover;
     coverImage.hidden = false;
-    coverDownload.href = cover;
+    coverDownload.href = URL.createObjectURL(png);
     coverDownload.download = file.name.replace(/\.stl$/i, '') + '-cover.png';
     coverDownload.hidden = false;
     addButton.disabled = false;
