@@ -1,6 +1,6 @@
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
-const SUPABASE_URL = '';
-const SUPABASE_ANON_KEY = '';
+const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_zXO4GY-2ou6HpvEWzeaO9Q_XT7uJkDg';
 
 // Add public STL entries here. Version the file URL when replacing an existing STL.
 const publishedModels = [
