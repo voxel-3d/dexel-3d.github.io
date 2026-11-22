@@ -3,7 +3,11 @@ const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_zXO4GY-2ou6HpvEWzeaO9Q_XT7uJkDg';
 
 // Indicative workshop tariff in RUB. Recalculated for existing models as well.
-const PRICE_PER_GRAM = 12;
+const MATERIAL_RUB_PER_KG = 850;
+const PRINT_RUB_PER_HOUR = 3;
+const SALE_PRICE_MULTIPLIER = 2;
+// Approximate throughput for STL estimates; actual time depends on slicer settings.
+const ESTIMATED_GRAMS_PER_HOUR = 10;
 const MINIMUM_ORDER_PRICE = 200;
 const INFILL = 0.25;
 const DENSITY_G_CM3 = 1.25;
@@ -172,11 +176,17 @@ function showSpecs(container, metrics) {
     return;
   }
   const grams = volume * DENSITY_G_CM3 * INFILL;
-  const price = Math.max(MINIMUM_ORDER_PRICE, Math.ceil(grams * PRICE_PER_GRAM));
+  const hours = grams / ESTIMATED_GRAMS_PER_HOUR;
+  const productionCost = grams / 1000 * MATERIAL_RUB_PER_KG + hours * PRINT_RUB_PER_HOUR;
+  const salePrice = Math.ceil(productionCost * SALE_PRICE_MULTIPLIER);
   material.textContent = 'Объём: ' + decimal.format(volume) + ' см³ · Пластик: ≈ ' + decimal.format(grams) + ' г';
   const estimate = document.createElement('strong');
-  estimate.textContent = 'Печать на заказ: от ' + number.format(price) + ' ₽';
-  container.append(estimate);
+  estimate.textContent = 'Цена одной детали: ≈ ' + number.format(salePrice) + ' ₽';
+  const minimum = document.createElement('small');
+  minimum.textContent = 'Минимальная сумма заказа — ' + number.format(MINIMUM_ORDER_PRICE) + ' ₽. Доставка рассчитывается отдельно.';
+  const duration = document.createElement('span');
+  duration.textContent = 'Время печати: ≈ ' + decimal.format(hours) + ' ч';
+  container.append(duration, estimate, minimum);
 }
 
 async function readMetrics(entry) {
@@ -555,6 +565,8 @@ async function openModel(entry, push = true) {
   byId('viewer-share-status').textContent = '';
   byId('printer-bed').checked = byId('model-wireframe').checked = false;
   showSpecs(byId('viewer-specs'), entry.metrics);
+  byId('viewer-tariff').textContent = 'Время печати оценено при ' + decimal.format(ESTIMATED_GRAMS_PER_HOUR) +
+    ' г/ч. Точное время покажет слайсер.';
   byId('viewer-order').href = orderURL(entry);
   showRelated(entry);
   logModelEvent(entry, 'view');
