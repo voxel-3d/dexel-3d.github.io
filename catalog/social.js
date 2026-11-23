@@ -379,7 +379,7 @@ export function initSocial(api) {
         let title = file.name.replace(/\.stl$/i,'').replace(/[-_]+/g,' ').trim().slice(0,100);
         if (!title) throw new Error('Укажите имя файла.');
         title = title[0].toLocaleUpperCase('ru') + title.slice(1);
-        const selection = {file,color:'#d4af37',azimuth:45,elevation:40};
+        const selection = {file,color:'#d4af37',azimuth:35,elevation:30};
         const cover = await api.queueCover(selection);
         const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
         selection.png = new Blob([bytes],{type:'image/png'});

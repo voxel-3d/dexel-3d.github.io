@@ -1,7 +1,7 @@
 const GOOGLE_DRIVE_UPLOAD_URL = '';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
-import { initSocial } from './social.js?v=social';
+import { initSocial } from './social.js?v=studio-2';
 
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
 const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
@@ -51,7 +51,7 @@ const MAX_SOFTWARE_TRIANGLES = 50000;
 const COVER_WIDTH = 640;
 const COVER_HEIGHT = 500;
 const COVER_PREFIX = 'dexel-stl-cover:';
-const COVER_VERSION = '1';
+const COVER_VERSION = 'studio-2';
 
 const byId = id => document.getElementById(id);
 const dialog = byId('model-dialog');
@@ -401,7 +401,7 @@ function studioScene(THREE, renderer, model) {
   return scene;
 }
 
-async function snapshot(renderer) {
+async function snapshot(renderer, backdrop) {
   if (renderer.isWebGLRenderer) return renderer.domElement.toDataURL('image/png');
   // Keep cover generation available on devices where the interactive SVG fallback is used.
   const svg = new XMLSerializer().serializeToString(renderer.domElement);
@@ -415,8 +415,8 @@ async function snapshot(renderer) {
     canvas.width = COVER_WIDTH;
     canvas.height = COVER_HEIGHT;
     const context = canvas.getContext('2d');
-    context.fillStyle = '#20221d';
-    context.fillRect(0, 0, COVER_WIDTH, COVER_HEIGHT);
+    if (backdrop) context.drawImage(backdrop, 0, 0, COVER_WIDTH, COVER_HEIGHT);
+    else { context.fillStyle = '#20221d'; context.fillRect(0, 0, COVER_WIDTH, COVER_HEIGHT); }
     context.drawImage(image, 0, 0, COVER_WIDTH, COVER_HEIGHT);
     return canvas.toDataURL('image/png');
   } finally {
@@ -424,41 +424,155 @@ async function snapshot(renderer) {
   }
 }
 
+// Dedicated cover studio: the interactive viewer keeps its existing scene and controls.
+let coverEnvironment;
+function coverBackdrop() {
+  const canvas = document.createElement('canvas');
+  canvas.width = COVER_WIDTH;
+  canvas.height = COVER_HEIGHT;
+  const context = canvas.getContext('2d');
+  const gradient = context.createRadialGradient(320, 220, 0, 320, 220, 410);
+  gradient.addColorStop(0, '#232529');
+  gradient.addColorStop(1, '#0d0e10');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+async function getCoverEnvironment(THREE, renderer) {
+  if (coverEnvironment?.renderer === renderer) return coverEnvironment.target.texture;
+  coverEnvironment?.target.dispose();
+  coverEnvironment = undefined;
+  // RoomEnvironment is an addon in the pinned Three.js 0.170.0 import map.
+  const { RoomEnvironment } = await import('three/addons/environments/RoomEnvironment.js');
+  const room = new RoomEnvironment();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  try {
+    const target = pmrem.fromScene(room, .04);
+    coverEnvironment = {renderer, target};
+    return target.texture;
+  } finally {
+    room.dispose();
+    pmrem.dispose();
+  }
+}
+window.addEventListener('pagehide', () => {
+  coverEnvironment?.target.dispose();
+  coverEnvironment = undefined;
+});
+
+// Include the directional shadow in framing, not the entire invisible ground plane.
+function coverBounds(THREE, model, lightPosition) {
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const floorY = box.min.y - .003;
+  const points = [];
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) {
+        const point = new THREE.Vector3(x, y, z);
+        points.push(point);
+        const drop = (y - floorY) / lightPosition.y;
+        points.push(new THREE.Vector3(x - lightPosition.x * drop, floorY, z - lightPosition.z * drop));
+      }
+    }
+  }
+  return {points, floorY, box: new THREE.Box3().setFromPoints(points)};
+}
+async function createCoverStudio(THREE, renderer, model) {
+  const webgl = renderer.isWebGLRenderer;
+  if (!webgl && model.geometry.getAttribute('position').count / 3 > MAX_SOFTWARE_TRIANGLES) {
+    throw new Error('Для этой модели нужен WebGL. Без него поддерживаются STL до 50 000 треугольников.');
+  }
+  const scene = new THREE.Scene();
+  const backdrop = coverBackdrop();
+  const texture = webgl ? new THREE.CanvasTexture(backdrop) : undefined;
+  if (texture) { texture.colorSpace = THREE.SRGBColorSpace; scene.background = texture; }
+  const key = new THREE.DirectionalLight(0xfff5e6, webgl ? 2.4 : .9);
+  key.position.set(-3, 4.5, 3);
+  const bounds = coverBounds(THREE, model, key.position);
+  let floor;
+  const dispose = () => {
+    texture?.dispose();
+    floor?.geometry.dispose();
+    floor?.material.dispose();
+    key.shadow.dispose();
+    scene.clear();
+  };
+  try {
+    model.material.color.set(model.userData.coverColor || '#b8bec7');
+    model.material.roughness = .48;
+    model.material.metalness = .12;
+    model.material.envMapIntensity = .85;
+    model.castShadow = true;
+    model.receiveShadow = true;
+    scene.add(model, key);
+    scene.add(new THREE.HemisphereLight(0xdce8ff, 0x1c1d21, .9));
+    const rim = new THREE.DirectionalLight(0xffd98e, webgl ? 1.8 : .45);
+    rim.position.set(3, 4, -4);
+    scene.add(rim);
+    if (webgl) {
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      scene.environment = await getCoverEnvironment(THREE, renderer);
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.bias = -.0005;
+      key.shadow.normalBias = .002;
+      key.shadow.radius = 4;
+      Object.assign(key.shadow.camera, {left:-3, right:3, top:3, bottom:-3, near:.1, far:15});
+      key.shadow.camera.updateProjectionMatrix();
+      const size = bounds.box.getSize(new THREE.Vector3());
+      const center = bounds.box.getCenter(new THREE.Vector3());
+      floor = new THREE.Mesh(new THREE.PlaneGeometry(size.x + 1, size.z + 1), new THREE.ShadowMaterial({opacity:.45, depthWrite:false}));
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(center.x, bounds.floorY, center.z);
+      floor.receiveShadow = true;
+      scene.add(floor);
+    } else {
+      // SVG cannot render PBR environments or shadow maps; retain a usable preview.
+      scene.add(new THREE.AmbientLight(0xffffff, .6));
+      renderer.domElement.style.backgroundColor = 'transparent';
+    }
+    return {scene, backdrop, bounds, dispose};
+  } catch (error) { dispose(); throw error; }
+}
+function frameCover(THREE, camera, points) {
+  camera.updateMatrixWorld(true);
+  const min = new THREE.Vector2(Infinity, Infinity);
+  const max = new THREE.Vector2(-Infinity, -Infinity);
+  for (const worldPoint of points) {
+    const point = worldPoint.clone().applyMatrix4(camera.matrixWorldInverse);
+    min.x = Math.min(min.x, point.x); min.y = Math.min(min.y, point.y);
+    max.x = Math.max(max.x, point.x); max.y = Math.max(max.y, point.y);
+  }
+  const aspect = COVER_WIDTH / COVER_HEIGHT;
+  const halfHeight = Math.max((max.y-min.y)/2, (max.x-min.x)/(2*aspect), .001) / .75;
+  const mid = min.clone().add(max).multiplyScalar(.5);
+  Object.assign(camera, {top:mid.y+halfHeight, bottom:mid.y-halfHeight, left:mid.x-halfHeight*aspect, right:mid.x+halfHeight*aspect});
+  camera.updateProjectionMatrix();
+}
 async function renderCover(entry) {
   const [THREE, { STLLoader }] = await getSTLModules();
   const renderer = studioRenderer ??= await selectRenderer(THREE, true);
   const model = await loadSTL(THREE, STLLoader, entry);
+  let studio;
   try {
-    const scene = studioScene(THREE, renderer, model);
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 12);
-    camera.position.copy(modelDirection(THREE, entry.azimuth, entry.elevation)).multiplyScalar(4);
+    model.userData.coverColor = entry.color || '#b8bec7';
+    studio = await createCoverStudio(THREE, renderer, model);
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 20);
+    camera.position.copy(modelDirection(THREE, entry.azimuth ?? 35, entry.elevation ?? 30)).multiplyScalar(6);
     camera.lookAt(0, 0, 0);
-    camera.updateMatrixWorld();
-
-    const point = new THREE.Vector3();
-    const min = new THREE.Vector2(Infinity, Infinity);
-    const max = new THREE.Vector2(-Infinity, -Infinity);
-    const positions = model.geometry.getAttribute('position');
-    for (let i = 0; i < positions.count; i++) {
-      point.fromBufferAttribute(positions, i).applyMatrix4(camera.matrixWorldInverse);
-      min.x = Math.min(min.x, point.x);
-      min.y = Math.min(min.y, point.y);
-      max.x = Math.max(max.x, point.x);
-      max.y = Math.max(max.y, point.y);
-    }
-    const aspect = COVER_WIDTH / COVER_HEIGHT;
-    const halfHeight = Math.max((max.y - min.y) / 2, (max.x - min.x) / (2 * aspect), .001) * 1.14;
-    const mid = min.clone().add(max).multiplyScalar(.5);
-    camera.top = mid.y + halfHeight;
-    camera.bottom = mid.y - halfHeight;
-    camera.left = mid.x - halfHeight * aspect;
-    camera.right = mid.x + halfHeight * aspect;
-    camera.updateProjectionMatrix();
-
+    frameCover(THREE, camera, studio.bounds.points);
     renderer.setSize(COVER_WIDTH, COVER_HEIGHT, false);
-    renderer.render(scene, camera);
-    return await snapshot(renderer);
+    renderer.render(studio.scene, camera);
+    if (!renderer.isWebGLRenderer) renderer.domElement.style.backgroundColor = 'transparent';
+    // Editor/download PNG is retained. saveCloudModel still compresses to 640×500 WebP.
+    return await snapshot(renderer, studio.backdrop);
   } finally {
+    studio?.dispose();
     disposeModel(model);
   }
 }
@@ -1394,7 +1508,7 @@ byId('drive-import-form').addEventListener('submit', async event => {
         if(!bytes.byteLength||bytes.byteLength>MAX_FILE_SIZE)throw new Error('Некорректный размер STL.');
         const localFile=new File([bytes],file.fileName,{type:'model/stl'});
         const modelId=await driveImportModelId(file.fileId);
-        const selection={file:localFile,color:'#d4af37',azimuth:45,elevation:40};
+        const selection={file:localFile,color:'#d4af37',azimuth:35,elevation:30};
         const cover=await queueCover(selection,()=>!driveImportCancelled&&user?.id===account.id);
         checkImportAccount(account);
         const pngBytes=Uint8Array.from(atob(cover.split(',')[1]),char=>char.charCodeAt(0));
