@@ -383,7 +383,7 @@ export function initSocial(api) {
         const cover = await api.queueCover(selection);
         const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
         selection.png = new Blob([bytes],{type:'image/png'});
-        await api.saveCloudModel({title,description:'3D-модель «' + title + '» для печати.',category,tags:[]},selection,null,owner);
+        await api.saveCloudModel({title,description:'',category,tags:[]},selection,null,owner);
         success++;
       } catch (error) {
         const item = document.createElement('li');
