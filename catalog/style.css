@@ -431,3 +431,10 @@
 #make-open { width: auto; }
 @media (max-width: 700px) { .makes-grid, .requests-list { grid-template-columns: repeat(2,minmax(0,1fr)); } }
 @media (max-width: 480px) { .makes-grid, .requests-list { grid-template-columns: minmax(0,1fr); } }
+
+#drive-import-panel { margin-top: 24px; }
+#drive-import-metadata { box-sizing: border-box; width: 100%; min-height: 120px; resize: vertical; margin-block: 8px; padding: 12px; color: var(--paper); background: var(--panel); border: 1px solid var(--line); font: inherit; }
+#drive-import-metadata:focus { outline: 2px solid #d4af37; outline-offset: 2px; }
+#drive-import-progress { width: 100%; margin-top: 16px; accent-color: #d4af37; }
+#drive-import-help { color: var(--muted); font-size: .9rem; }
+#drive-import-errors { color: #ffb8a8; overflow-wrap: anywhere; }
