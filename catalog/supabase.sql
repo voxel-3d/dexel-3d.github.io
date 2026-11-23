@@ -5,7 +5,7 @@ create table if not exists public.models (
   user_id uuid not null default auth.uid() references auth.users(id) on delete cascade,
   author_name text not null default 'Автор DEXEL 3D' check (char_length(btrim(author_name)) between 1 and 80),
   title text not null check (char_length(btrim(title)) between 1 and 100),
-  description text not null check (char_length(btrim(description)) between 1 and 500),
+  description text not null default '' check (char_length(btrim(description)) <= 500),
   category text not null default '' check (char_length(category) <= 60),
   tags text[] not null default '{}' check (cardinality(tags) <= 8 and char_length(array_to_string(tags, ',')) <= 251),
   stl_path text not null,
