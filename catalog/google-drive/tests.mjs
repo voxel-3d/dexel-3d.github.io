@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
-import {webcrypto} from 'node:crypto';
+import {webcrypto, createHash} from 'node:crypto';
 const owner='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const other='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const model='cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -11,7 +11,7 @@ const bytes=Buffer.alloc(134); bytes.writeUInt32LE(1,80);
 const files=new Map(), receipts=new Map();let row, counter=0, authOnline=true;
 const blob=(b,type,name)=>({bytes:Buffer.from(b),name,getDataAsString:()=>Buffer.from(b).toString('utf8'),getBytes:()=>[...Buffer.from(b)]});
 const iterator=items=>({hasNext:()=>!!items.length,next:()=>items.shift()});
-const folder={getFilesByName:name=>iterator([...files.values()].filter(f=>f.name===name&&!f.trashed)),createFile:b=>{
+const folder={getFiles:()=>iterator([...files.values()]),getFilesByName:name=>iterator([...files.values()].filter(f=>f.name===name&&!f.trashed)),createFile:b=>{
  const f={id:'Drive_file_'+(++counter),name:b.name,desc:'',trashed:false,bytes:b.bytes,
  getId(){return this.id},getName(){return this.name},getSize(){return this.bytes.length},
  setDescription(x){this.desc=x},getDescription(){return this.desc},setSharing(){this.public=true},
@@ -24,7 +24,7 @@ const ctx=vm.createContext({console,
   const who=opts.headers.Authorization==='Bearer '+token?owner:opts.headers.Authorization==='Bearer '+otherToken?other:null;
   let result,code=200;
   if(!authOnline){code=503;result={};}
-  else if(url.includes('/auth/v1/user')) {result={id:who,email_confirmed_at:'now'};if(!who)code=401;}
+  else if(url.includes('/auth/v1/user')) {result={id:who,email:who===owner?'igorkruk747@gmail.com':'ordinary@example.com',email_confirmed_at:'now'};if(!who)code=401;}
   else {result=row?[row]:[]; if(url.includes('deleting=eq.false')&&row?.deleting)result=[];}
   return {getResponseCode:()=>code,getContentText:()=>JSON.stringify(result)};
  }},
@@ -32,7 +32,7 @@ const ctx=vm.createContext({console,
  CacheService:{getScriptCache:()=>({get:k=>receipts.get(k),put:(k,v)=>receipts.set(k,v)})},
  LockService:{getScriptLock:()=>({tryLock:()=>true,releaseLock(){}})},
  DriveApp:{getFileById:id=>{if(!files.has(id))throw Error('missing');return files.get(id)},getFolderById:()=>folder,Access:{ANYONE_WITH_LINK:'public'},Permission:{VIEW:'view'}},
- Utilities:{newBlob:blob,base64Decode:s=>[...Buffer.from(s,'base64')],base64Encode:b=>Buffer.from(b).toString('base64')},
+ Utilities:{getUuid:()=>webcrypto.randomUUID(),DigestAlgorithm:{SHA_256:'sha256'},Charset:{UTF_8:'utf8'},computeDigest:(algo,text)=>[...createHash('sha256').update(text).digest()],newBlob:blob,base64Decode:s=>[...Buffer.from(s,'base64')],base64Encode:b=>Buffer.from(b).toString('base64')},
  ScriptApp:{getService:()=>({getUrl:()=> 'https://script.google.com/macros/s/test/exec'})}
 });
 vm.runInContext(readFileSync(new URL('Code.gs',import.meta.url),'utf8'),ctx);
@@ -128,3 +128,39 @@ failCover=false;failDB=true;rows.clear();removed=[];
 await assert.rejects(saveCtx.saveCloudModel({title:'Part'},selection,null,account));
 assert.equal(removed.some(p=>p.includes('drive-Drive_new_01')),true);
 console.log('Save flow: STL never enters Supabase, WebP cover upload, replacement cleanup, interrupted-save recovery and failed-upload cleanup passed.');
+
+// Moderator-only list/read/adoption must not trust a supplied email.
+authOnline=true;row=undefined;
+const email='igorkruk747@gmail.com';
+assert.equal(get({action:'list',email}).status,403);
+assert.equal(post({action:'moderator-session',moderatorEmail:email,accessToken:otherToken}).status,403);
+assert.equal(post({action:'moderator-session',moderatorEmail:'ordinary@example.com'}).status,403);
+const mod=post({action:'moderator-session',moderatorEmail:email});
+assert.equal(mod.ok,true);
+const raw=folder.createFile(blob(bytes,'model/stl','new_part.stl'));
+const importedId=ctx.importId_(raw.getId());
+assert.equal(get({action:'list',email,ticket:mod.ticket}).files.some(f=>f.fileId===raw.getId()),true);
+assert.equal(get({action:'list',email:'ordinary@example.com',ticket:mod.ticket}).status,403);
+assert.equal(get({action:'import-read',email,id:raw.getId()}).status,403);
+assert.equal(get({action:'import-read',email,id:raw.getId(),ticket:mod.ticket}).base64,bytes.toString('base64'));
+assert.equal(get({id:raw.getId()}).ok,false);
+assert.equal(post({action:'import-claim',fileId:raw.getId(),modelId:importedId,moderatorEmail:email,accessToken:otherToken}).status,403);
+assert.equal(raw.desc,'');
+const claim=post({action:'import-claim',fileId:raw.getId(),modelId:importedId,moderatorEmail:email});
+assert.equal(claim.ok,true);assert.equal(raw.public,true);assert.equal(JSON.parse(raw.desc).owner,owner);
+assert.equal(post({action:'import-claim',fileId:raw.getId(),modelId:importedId,moderatorEmail:email}).ok,true);
+assert.equal(post({action:'import-claim',fileId:first.fileId,modelId:ctx.importId_(first.fileId),moderatorEmail:email}).ok,false);
+const outsider=folder.createFile(blob(bytes,'model/stl','outside.stl'));
+outsider.getParents=()=>iterator([{getId:()=> 'another-folder'}]);
+assert.equal(get({action:'import-read',email,id:outsider.getId(),ticket:mod.ticket}).ok,false);
+receipts.delete('moderator:'+mod.ticket);
+assert.equal(get({action:'list',email,ticket:mod.ticket}).code,'TICKET_EXPIRED');
+console.log('Moderator API: spoofed emails and ordinary sessions rejected; list/read require ticket; claim is moderator-only, folder-scoped and repeatable.');
+
+// Source file must survive a failed imported-model database write.
+failDB=true;failCover=false;rows.clear();removed=[];
+saveCtx.checkImportAccount=()=>{};
+saveCtx.drivePost=async(action,p)=>{assert.equal(action,'import-claim');return {fileId:p.fileId,modelId:p.modelId}};
+await assert.rejects(saveCtx.saveCloudModel({title:'Imported'},{...selection,importDrive:{fileId:raw.getId(),modelId:model}},null,{...account,email}));
+assert.equal(removed.some(path=>path.includes('/drive-')),false);
+console.log('Import save: database failure cleans cover only, original Drive STL is retained.');

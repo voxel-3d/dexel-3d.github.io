@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=social">
+  <link rel="stylesheet" href="style.css?v=drive-import">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=google-drive"></script>
+  <script type="module" src="script.js?v=studio-2"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -108,6 +108,19 @@
         <div class="account-actions"><button id="account-add" type="button" class="catalog-card-button library-add" aria-haspopup="dialog">+ Добавить новую модель</button>
         <button id="bulk-open" type="button" class="catalog-card-button">Массовая загрузка</button></div>
       </div>
+      <section id="drive-import-panel" class="social-block" hidden aria-labelledby="drive-import-title">
+        <h2 id="drive-import-title">Импортировать с Google Диска</h2>
+        <p>Инструмент модератора. Новые STL из папки мастерской появятся в общем каталоге с автоматическими обложками. Уже добавленные файлы будут пропущены.</p>
+        <form id="drive-import-form">
+          <label for="drive-import-metadata">Названия и описания — JSON (необязательно)</label>
+          <textarea id="drive-import-metadata" rows="5" maxlength="1000000" aria-describedby="drive-import-help" placeholder='[{"fileName":"vase.stl","title":"Ваза","description":"Ваза для сухоцветов","category":"Для дома и быта"}]'></textarea>
+          <p id="drive-import-help">Массив объектов с полями fileName, title, description, category. Имя файла должно совпадать полностью. Без JSON название берётся из имени STL, категория — «Другое».</p>
+          <div class="account-actions"><button id="drive-import-start" class="catalog-card-button library-add" type="submit">Импортировать с Google Диска</button><button id="drive-import-stop" class="catalog-card-button" type="button" hidden>Остановить импорт</button></div>
+        </form>
+        <progress id="drive-import-progress" max="1" value="0" aria-label="Прогресс импорта" hidden></progress>
+        <p id="drive-import-status" class="library-status" role="status" aria-live="polite"></p>
+        <ul id="drive-import-errors" aria-label="Ошибки импорта"></ul>
+      </section>
       <p id="account-status" class="library-status" role="status"></p>
       <div id="owned-models" class="owned-models"></div></div>
       <div id="favorite-panel" hidden><h2>Избранное</h2><p id="favorite-status" class="library-status" role="status"></p><div id="favorite-grid" class="catalog-grid"></div></div>
@@ -191,10 +204,10 @@
       </div>
       <fieldset id="cover-angle" class="cover-angle" hidden>
         <legend>Ракурс обложки</legend>
-        <label for="cover-azimuth">Поворот <output for="cover-azimuth" id="cover-azimuth-value">45°</output></label>
-        <input id="cover-azimuth" type="range" min="-180" max="180" value="45" step="5">
-        <label for="cover-elevation">Наклон <output for="cover-elevation" id="cover-elevation-value">40°</output></label>
-        <input id="cover-elevation" type="range" min="0" max="85" value="40" step="5">
+        <label for="cover-azimuth">Поворот <output for="cover-azimuth" id="cover-azimuth-value">35°</output></label>
+        <input id="cover-azimuth" type="range" min="-180" max="180" value="35" step="5">
+        <label for="cover-elevation">Наклон <output for="cover-elevation" id="cover-elevation-value">30°</output></label>
+        <input id="cover-elevation" type="range" min="0" max="85" value="30" step="5">
       </fieldset>
       <img id="library-cover" class="library-cover" width="640" height="500" alt="Предпросмотр обложки модели" hidden>
       <div id="upload-specs" class="model-specs"></div>
