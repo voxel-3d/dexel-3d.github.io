@@ -1,3 +1,5 @@
+const GOOGLE_DRIVE_UPLOAD_URL = '';
+
 import { initSocial } from './social.js?v=social';
 
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
@@ -188,10 +190,149 @@ async function readMetrics(entry) {
   return entry.metrics;
 }
 
+// Google Apps Script handles STL bytes; Supabase retains metadata and light images.
+function driveFileId(path = '') {
+  return path.match(/\/drive-([A-Za-z0-9_-]{10,160})\.stl$/)?.[1];
+}
+function driveEndpoint() {
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GOOGLE_DRIVE_UPLOAD_URL)) {
+    throw new Error('Загрузка STL пока не настроена. Укажите GOOGLE_DRIVE_UPLOAD_URL веб-приложения Google Apps Script.');
+  }
+  return GOOGLE_DRIVE_UPLOAD_URL;
+}
+function driveJSONP(params, signal) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(driveEndpoint());
+    const callback = 'dexelDrive_' + crypto.randomUUID().replaceAll('-', '');
+    for (const [key, value] of Object.entries({...params, callback})) url.searchParams.set(key, value);
+    const script = document.createElement('script');
+    let timer;
+    const finish = (error, data) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      script.remove();
+      // A late JSONP response must not throw after cancellation.
+      window[callback] = () => {};
+      setTimeout(() => delete window[callback], 60000);
+      error ? reject(error) : resolve(data);
+    };
+    const abort = () => finish(new DOMException('Aborted', 'AbortError'));
+    if (signal?.aborted) return abort();
+    window[callback] = data => finish(null, data);
+    script.onerror = () => finish(new Error('Google Диск недоступен. Проверьте доступ Web App: «Все».'));
+    timer = setTimeout(() => finish(new Error('Google Диск не ответил вовремя. Повторите попытку.')), 90000);
+    signal?.addEventListener('abort', abort, {once:true});
+    script.src = url.href;
+    script.referrerPolicy = 'no-referrer';
+    document.head.append(script);
+  });
+}
+async function driveRead(fileId, signal) {
+  const url = new URL(driveEndpoint());
+  url.searchParams.set('id', fileId);
+  let data;
+  try {
+    const response = await fetch(url, {signal, credentials:'omit', redirect:'follow'});
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    data = await response.json();
+  } catch (error) {
+    signal?.throwIfAborted();
+    data = await driveJSONP({id:fileId}, signal);
+  }
+  if (!data.ok) throw new Error(data.error || 'Не удалось получить STL с Google Диска.');
+  if (typeof data.base64 !== 'string' || data.base64.length > Math.ceil(MAX_FILE_SIZE / 3) * 4) throw new Error('Некорректный размер STL.');
+  const binary = atob(data.base64);
+  if (!binary.length || binary.length > MAX_FILE_SIZE) throw new Error('Некорректный размер STL.');
+  return Uint8Array.from(binary, char => char.charCodeAt(0)).buffer;
+}
+async function drivePost(action, payload) {
+  const endpoint = driveEndpoint();
+  const {data, error} = await supabase.auth.getSession();
+  if (error || !data.session) throw new Error('Войдите в личный кабинет заново.');
+  const requestId = crypto.randomUUID();
+  let result;
+  try {
+    const response = await fetch(endpoint, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      credentials:'omit', redirect:'follow', signal:AbortSignal.timeout(120000),
+      body:JSON.stringify({action, requestId, ...payload, accessToken:data.session.access_token})
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    result = await response.json();
+  } catch {
+    // POST may have succeeded although its redirect was blocked. Never repeat a write blindly.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      result = await driveJSONP({action:'status', requestId});
+      if (!result.pending) break;
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    if (result?.pending) throw new Error('Не удалось подтвердить загрузку/удаление на Google Диске. Проверьте папку и подключение перед повтором.');
+  }
+  if (!result?.ok) throw new Error(result?.error || 'Ошибка Google Диска.');
+  return result;
+}
+function fileBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = () => reject(new Error('Не удалось прочитать STL.'));
+    reader.readAsDataURL(file);
+  });
+}
+async function removeAsset(path) {
+  const id = driveFileId(path);
+  if (id) await drivePost('delete', {fileId:id});
+  else {
+    const {error} = await supabase.storage.from(BUCKET).remove([path]);
+    if (error) throw error;
+  }
+}
+async function webpCover(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = COVER_WIDTH;
+    canvas.height = COVER_HEIGHT;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#20221d';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    // Preserve the complete model/photo rather than cropping it.
+    const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+    const w = image.naturalWidth * scale, h = image.naturalHeight * scale;
+    context.drawImage(image, (canvas.width-w)/2, (canvas.height-h)/2, w, h);
+    const result = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', .82));
+    if (!result || result.type !== 'image/webp') throw new Error('Браузер не поддерживает сохранение WebP. Обновите браузер.');
+    return result;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function downloadDriveModel(event, entry, name) {
+  event.preventDefault();
+  const button = event.currentTarget;
+  if (button.getAttribute('aria-busy') === 'true') return;
+  button.setAttribute('aria-busy', 'true');
+  const label = button.textContent;
+  button.textContent = 'Загружаем STL…';
+  try {
+    const bytes = await driveRead(entry.driveId);
+    const url = URL.createObjectURL(new Blob([bytes], {type:'model/stl'}));
+    const link = document.createElement('a');
+    link.href = url; link.download = name;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    logModelEvent(entry, 'download');
+  } catch (error) { note(libraryStatus, error.message, true); }
+  finally { button.removeAttribute('aria-busy'); button.textContent = label; }
+}
+
 async function loadSTL(THREE, STLLoader, entry, signal) {
   let bytes;
   if (entry.file) {
     bytes = await entry.file.arrayBuffer();
+  } else if (entry.driveId) {
+    bytes = await driveRead(entry.driveId, signal);
   } else {
     const response = await fetch(entry.fileUrl, { signal });
     if (!response.ok) throw new Error('Не удалось загрузить STL.');
@@ -690,7 +831,10 @@ function createCard(entry) {
     ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.stl'
     : entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
   download.download = fileName;
-  if (entry.remote) {
+  if (entry.driveId) {
+    download.href = 'https://drive.google.com/file/d/' + entry.driveId + '/view';
+    download.addEventListener('click', event => downloadDriveModel(event, entry, fileName));
+  } else if (entry.remote) {
     download.href = cloudFile(entry.remote.stl_path, fileName);
     download.addEventListener('click', () => logModelEvent(entry, 'download'));
   } else if (entry.downloadUrl || entry.fileUrl) {
@@ -845,7 +989,8 @@ function publicEntry(row) {
   return {
     id: row.id, title: row.title, description: row.description, category: row.category,
     createdAt: Date.parse(row.created_at), metrics: row.geometry_metrics,
-    color: '#d4af37', fileUrl: cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
+    color: '#d4af37', driveId: driveFileId(row.stl_path),
+    fileUrl: driveFileId(row.stl_path) ? undefined : cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
   };
 }
 
@@ -1263,7 +1408,8 @@ async function renderEditorCover() {
   const version = previewRevision;
   const selection = {
     file,
-    fileUrl: !file && editing ? cloudFile(editing.stl_path) : undefined,
+    driveId: !file && editing ? driveFileId(editing.stl_path) : undefined,
+    fileUrl: !file && editing && !driveFileId(editing.stl_path) ? cloudFile(editing.stl_path) : undefined,
     color: '#d4af37',
     azimuth: Number(azimuthInput.value),
     elevation: Number(elevationInput.value)
@@ -1320,6 +1466,14 @@ async function saveCloudModel(fields, selection, row, account) {
   const prefix = account.id + '/' + id + '/' + crypto.randomUUID();
   const storage = supabase.storage.from(BUCKET);
   const uploaded = [];
+  let drivePath;
+  const cleanup = async paths => {
+    const failed = [];
+    for (const path of paths) {
+      try { await removeAsset(path); } catch { failed.push(path); }
+    }
+    if (failed.length) note(accountStatus, 'Модель сохранена/обновлена не полностью: часть старых или временных файлов не удалена. Проверьте хранилище.', true);
+  };
 
   async function upload(path, bytes, contentType) {
     uploaded.push(path);
@@ -1331,17 +1485,20 @@ async function saveCloudModel(fields, selection, row, account) {
   try {
     if (selection?.file) {
       payload.geometry_metrics = selection.metrics;
-      payload.stl_path = prefix + '.stl';
-      await upload(payload.stl_path, selection.file, 'model/stl');
+      if (!selection.file.size || selection.file.size > MAX_FILE_SIZE) throw new Error('STL должен быть не больше 20 МБ.');
+      const result = await drivePost('upload', {modelId:id, name:selection.file.name, base64:await fileBase64(selection.file)});
+      if (!/^[A-Za-z0-9_-]{10,160}$/.test(result.fileId || '')) throw new Error('Google Диск вернул неверный ID файла.');
+      payload.stl_path = account.id + '/' + id + '/drive-' + result.fileId + '.stl';
+      drivePath = payload.stl_path;
     }
     if (selection) {
-      payload.cover_path = prefix + '.png';
+      payload.cover_path = prefix + '.webp';
       payload.cover_azimuth = selection.azimuth;
       payload.cover_elevation = selection.elevation;
-      await upload(payload.cover_path, selection.png, 'image/png');
+      await upload(payload.cover_path, await webpCover(selection.png), 'image/webp');
     }
   } catch (error) {
-    if (uploaded.length) await storage.remove(uploaded).catch(() => {});
+    await cleanup([...uploaded, ...(drivePath ? [drivePath] : [])]);
     throw error;
   }
 
@@ -1368,12 +1525,13 @@ async function saveCloudModel(fields, selection, row, account) {
       .select('*')
       .eq('id', id).eq('user_id', account.id).eq('deleting', false).maybeSingle();
     const matches = current && Object.entries(payload).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
-    const filesMatch = current && uploaded.length && uploaded.every(path => path === current.stl_path || path === current.cover_path);
+    const written = [...uploaded, ...(drivePath ? [drivePath] : [])];
+    const filesMatch = current && written.length && written.every(path => path === current.stl_path || path === current.cover_path);
     if (!error && (matches || filesMatch)) {
       saved = current;
     } else {
-      if (!error && uploaded.length) {
-        await storage.remove(uploaded.filter(path => path !== current?.stl_path && path !== current?.cover_path)).catch(() => {});
+      if (!error && written.length) {
+        await cleanup(written.filter(path => path !== current?.stl_path && path !== current?.cover_path));
       }
       throw new Error('Не удалось подтвердить сохранение. Обновите список моделей перед повторной попыткой.');
     }
@@ -1381,7 +1539,7 @@ async function saveCloudModel(fields, selection, row, account) {
 
   if (row) {
     const old = [row.stl_path, row.cover_path].filter(path => path !== saved.stl_path && path !== saved.cover_path);
-    if (old.length) await storage.remove(old).catch(() => {});
+    if (old.length) await cleanup(old);
   }
 }
 
@@ -1475,6 +1633,7 @@ deleteDialog.addEventListener('close', async () => {
       listPublicModels(true);
     }
 
+    if (driveFileId(row.stl_path)) await removeAsset(row.stl_path);
     const folder = owner + '/' + row.id;
     const storage = supabase.storage.from(BUCKET);
     const paths = [];
