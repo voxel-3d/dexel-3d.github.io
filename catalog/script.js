@@ -1,3 +1,8 @@
+const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
+const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
+
+import { initSocial } from './social.js?v=studio-2';
+
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
 const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_zXO4GY-2ou6HpvEWzeaO9Q_XT7uJkDg';
@@ -46,7 +51,7 @@ const MAX_SOFTWARE_TRIANGLES = 50000;
 const COVER_WIDTH = 640;
 const COVER_HEIGHT = 500;
 const COVER_PREFIX = 'dexel-stl-cover:';
-const COVER_VERSION = '1';
+const COVER_VERSION = 'studio-2';
 
 const byId = id => document.getElementById(id);
 const dialog = byId('model-dialog');
@@ -67,6 +72,7 @@ const entries = new Map();
 const cards = new WeakMap();
 const localMeasurements = new WeakMap();
 const decimal = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 });
+let social;
 let activeModel;
 let activeCategory = 'Все';
 let visibleLimit = 24;
@@ -185,10 +191,149 @@ async function readMetrics(entry) {
   return entry.metrics;
 }
 
+// Google Apps Script handles STL bytes; Supabase retains metadata and light images.
+function driveFileId(path = '') {
+  return path.match(/\/drive-([A-Za-z0-9_-]{10,160})\.stl$/)?.[1];
+}
+function driveEndpoint() {
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GOOGLE_DRIVE_UPLOAD_URL)) {
+    throw new Error('Загрузка STL пока не настроена. Укажите GOOGLE_DRIVE_UPLOAD_URL веб-приложения Google Apps Script.');
+  }
+  return GOOGLE_DRIVE_UPLOAD_URL;
+}
+function driveJSONP(params, signal) {
+  return new Promise((resolve, reject) => {
+    const url = new URL(driveEndpoint());
+    const callback = 'dexelDrive_' + crypto.randomUUID().replaceAll('-', '');
+    for (const [key, value] of Object.entries({...params, callback})) url.searchParams.set(key, value);
+    const script = document.createElement('script');
+    let timer;
+    const finish = (error, data) => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', abort);
+      script.remove();
+      // A late JSONP response must not throw after cancellation.
+      window[callback] = () => {};
+      setTimeout(() => delete window[callback], 60000);
+      error ? reject(error) : resolve(data);
+    };
+    const abort = () => finish(new DOMException('Aborted', 'AbortError'));
+    if (signal?.aborted) return abort();
+    window[callback] = data => finish(null, data);
+    script.onerror = () => finish(new Error('Google Диск недоступен. Проверьте доступ Web App: «Все».'));
+    timer = setTimeout(() => finish(new Error('Google Диск не ответил вовремя. Повторите попытку.')), 90000);
+    signal?.addEventListener('abort', abort, {once:true});
+    script.src = url.href;
+    script.referrerPolicy = 'no-referrer';
+    document.head.append(script);
+  });
+}
+async function driveRead(fileId, signal) {
+  const url = new URL(driveEndpoint());
+  url.searchParams.set('id', fileId);
+  let data;
+  try {
+    const response = await fetch(url, {signal, credentials:'omit', redirect:'follow'});
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    data = await response.json();
+  } catch (error) {
+    signal?.throwIfAborted();
+    data = await driveJSONP({id:fileId}, signal);
+  }
+  if (!data.ok) throw new Error(data.error || 'Не удалось получить STL с Google Диска.');
+  if (typeof data.base64 !== 'string' || data.base64.length > Math.ceil(MAX_FILE_SIZE / 3) * 4) throw new Error('Некорректный размер STL.');
+  const binary = atob(data.base64);
+  if (!binary.length || binary.length > MAX_FILE_SIZE) throw new Error('Некорректный размер STL.');
+  return Uint8Array.from(binary, char => char.charCodeAt(0)).buffer;
+}
+async function drivePost(action, payload) {
+  const endpoint = driveEndpoint();
+  const {data, error} = await supabase.auth.getSession();
+  if (error || !data.session) throw new Error('Войдите в личный кабинет заново.');
+  const requestId = crypto.randomUUID();
+  let result;
+  try {
+    const response = await fetch(endpoint, {
+      method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'},
+      credentials:'omit', redirect:'follow', signal:AbortSignal.timeout(120000),
+      body:JSON.stringify({action, requestId, ...payload, accessToken:data.session.access_token})
+    });
+    if (!response.ok) throw new Error('HTTP ' + response.status);
+    result = await response.json();
+  } catch {
+    // POST may have succeeded although its redirect was blocked. Never repeat a write blindly.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      result = await driveJSONP({action:'status', requestId});
+      if (!result.pending) break;
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+    if (result?.pending) throw new Error('Не удалось подтвердить загрузку/удаление на Google Диске. Проверьте папку и подключение перед повтором.');
+  }
+  if (!result?.ok) throw new Error(result?.error || 'Ошибка Google Диска.');
+  return result;
+}
+function fileBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = () => reject(new Error('Не удалось прочитать STL.'));
+    reader.readAsDataURL(file);
+  });
+}
+async function removeAsset(path) {
+  const id = driveFileId(path);
+  if (id) await drivePost('delete', {fileId:id});
+  else {
+    const {error} = await supabase.storage.from(BUCKET).remove([path]);
+    if (error) throw error;
+  }
+}
+async function webpCover(blob) {
+  const url = URL.createObjectURL(blob);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = COVER_WIDTH;
+    canvas.height = COVER_HEIGHT;
+    const context = canvas.getContext('2d');
+    context.fillStyle = '#20221d';
+    context.fillRect(0, 0, canvas.width, canvas.height);
+    // Preserve the complete model/photo rather than cropping it.
+    const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
+    const w = image.naturalWidth * scale, h = image.naturalHeight * scale;
+    context.drawImage(image, (canvas.width-w)/2, (canvas.height-h)/2, w, h);
+    const result = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', .82));
+    if (!result || result.type !== 'image/webp') throw new Error('Браузер не поддерживает сохранение WebP. Обновите браузер.');
+    return result;
+  } finally { URL.revokeObjectURL(url); }
+}
+async function downloadDriveModel(event, entry, name) {
+  event.preventDefault();
+  const button = event.currentTarget;
+  if (button.getAttribute('aria-busy') === 'true') return;
+  button.setAttribute('aria-busy', 'true');
+  const label = button.textContent;
+  button.textContent = 'Загружаем STL…';
+  try {
+    const bytes = await driveRead(entry.driveId);
+    const url = URL.createObjectURL(new Blob([bytes], {type:'model/stl'}));
+    const link = document.createElement('a');
+    link.href = url; link.download = name;
+    document.body.append(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    logModelEvent(entry, 'download');
+  } catch (error) { note(libraryStatus, error.message, true); }
+  finally { button.removeAttribute('aria-busy'); button.textContent = label; }
+}
+
 async function loadSTL(THREE, STLLoader, entry, signal) {
   let bytes;
   if (entry.file) {
     bytes = await entry.file.arrayBuffer();
+  } else if (entry.driveId) {
+    bytes = await driveRead(entry.driveId, signal);
   } else {
     const response = await fetch(entry.fileUrl, { signal });
     if (!response.ok) throw new Error('Не удалось загрузить STL.');
@@ -256,7 +401,7 @@ function studioScene(THREE, renderer, model) {
   return scene;
 }
 
-async function snapshot(renderer) {
+async function snapshot(renderer, backdrop) {
   if (renderer.isWebGLRenderer) return renderer.domElement.toDataURL('image/png');
   // Keep cover generation available on devices where the interactive SVG fallback is used.
   const svg = new XMLSerializer().serializeToString(renderer.domElement);
@@ -270,8 +415,8 @@ async function snapshot(renderer) {
     canvas.width = COVER_WIDTH;
     canvas.height = COVER_HEIGHT;
     const context = canvas.getContext('2d');
-    context.fillStyle = '#20221d';
-    context.fillRect(0, 0, COVER_WIDTH, COVER_HEIGHT);
+    if (backdrop) context.drawImage(backdrop, 0, 0, COVER_WIDTH, COVER_HEIGHT);
+    else { context.fillStyle = '#20221d'; context.fillRect(0, 0, COVER_WIDTH, COVER_HEIGHT); }
     context.drawImage(image, 0, 0, COVER_WIDTH, COVER_HEIGHT);
     return canvas.toDataURL('image/png');
   } finally {
@@ -279,41 +424,155 @@ async function snapshot(renderer) {
   }
 }
 
+// Dedicated cover studio: the interactive viewer keeps its existing scene and controls.
+let coverEnvironment;
+function coverBackdrop() {
+  const canvas = document.createElement('canvas');
+  canvas.width = COVER_WIDTH;
+  canvas.height = COVER_HEIGHT;
+  const context = canvas.getContext('2d');
+  const gradient = context.createRadialGradient(320, 220, 0, 320, 220, 410);
+  gradient.addColorStop(0, '#232529');
+  gradient.addColorStop(1, '#0d0e10');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+async function getCoverEnvironment(THREE, renderer) {
+  if (coverEnvironment?.renderer === renderer) return coverEnvironment.target.texture;
+  coverEnvironment?.target.dispose();
+  coverEnvironment = undefined;
+  // RoomEnvironment is an addon in the pinned Three.js 0.170.0 import map.
+  const { RoomEnvironment } = await import('three/addons/environments/RoomEnvironment.js');
+  const room = new RoomEnvironment();
+  const pmrem = new THREE.PMREMGenerator(renderer);
+  try {
+    const target = pmrem.fromScene(room, .04);
+    coverEnvironment = {renderer, target};
+    return target.texture;
+  } finally {
+    room.dispose();
+    pmrem.dispose();
+  }
+}
+window.addEventListener('pagehide', () => {
+  coverEnvironment?.target.dispose();
+  coverEnvironment = undefined;
+});
+
+// Include the directional shadow in framing, not the entire invisible ground plane.
+function coverBounds(THREE, model, lightPosition) {
+  model.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(model);
+  const floorY = box.min.y - .003;
+  const points = [];
+  for (const x of [box.min.x, box.max.x]) {
+    for (const y of [box.min.y, box.max.y]) {
+      for (const z of [box.min.z, box.max.z]) {
+        const point = new THREE.Vector3(x, y, z);
+        points.push(point);
+        const drop = (y - floorY) / lightPosition.y;
+        points.push(new THREE.Vector3(x - lightPosition.x * drop, floorY, z - lightPosition.z * drop));
+      }
+    }
+  }
+  return {points, floorY, box: new THREE.Box3().setFromPoints(points)};
+}
+async function createCoverStudio(THREE, renderer, model) {
+  const webgl = renderer.isWebGLRenderer;
+  if (!webgl && model.geometry.getAttribute('position').count / 3 > MAX_SOFTWARE_TRIANGLES) {
+    throw new Error('Для этой модели нужен WebGL. Без него поддерживаются STL до 50 000 треугольников.');
+  }
+  const scene = new THREE.Scene();
+  const backdrop = coverBackdrop();
+  const texture = webgl ? new THREE.CanvasTexture(backdrop) : undefined;
+  if (texture) { texture.colorSpace = THREE.SRGBColorSpace; scene.background = texture; }
+  const key = new THREE.DirectionalLight(0xfff5e6, webgl ? 2.4 : .9);
+  key.position.set(-3, 4.5, 3);
+  const bounds = coverBounds(THREE, model, key.position);
+  let floor;
+  const dispose = () => {
+    texture?.dispose();
+    floor?.geometry.dispose();
+    floor?.material.dispose();
+    key.shadow.dispose();
+    scene.clear();
+  };
+  try {
+    model.material.color.set(model.userData.coverColor || '#b8bec7');
+    model.material.roughness = .48;
+    model.material.metalness = .12;
+    model.material.envMapIntensity = .85;
+    model.castShadow = true;
+    model.receiveShadow = true;
+    scene.add(model, key);
+    scene.add(new THREE.HemisphereLight(0xdce8ff, 0x1c1d21, .9));
+    const rim = new THREE.DirectionalLight(0xffd98e, webgl ? 1.8 : .45);
+    rim.position.set(3, 4, -4);
+    scene.add(rim);
+    if (webgl) {
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.toneMappingExposure = 1.05;
+      renderer.shadowMap.enabled = true;
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+      scene.environment = await getCoverEnvironment(THREE, renderer);
+      key.castShadow = true;
+      key.shadow.mapSize.set(2048, 2048);
+      key.shadow.bias = -.0005;
+      key.shadow.normalBias = .002;
+      key.shadow.radius = 4;
+      Object.assign(key.shadow.camera, {left:-3, right:3, top:3, bottom:-3, near:.1, far:15});
+      key.shadow.camera.updateProjectionMatrix();
+      const size = bounds.box.getSize(new THREE.Vector3());
+      const center = bounds.box.getCenter(new THREE.Vector3());
+      floor = new THREE.Mesh(new THREE.PlaneGeometry(size.x + 1, size.z + 1), new THREE.ShadowMaterial({opacity:.45, depthWrite:false}));
+      floor.rotation.x = -Math.PI / 2;
+      floor.position.set(center.x, bounds.floorY, center.z);
+      floor.receiveShadow = true;
+      scene.add(floor);
+    } else {
+      // SVG cannot render PBR environments or shadow maps; retain a usable preview.
+      scene.add(new THREE.AmbientLight(0xffffff, .6));
+      renderer.domElement.style.backgroundColor = 'transparent';
+    }
+    return {scene, backdrop, bounds, dispose};
+  } catch (error) { dispose(); throw error; }
+}
+function frameCover(THREE, camera, points) {
+  camera.updateMatrixWorld(true);
+  const min = new THREE.Vector2(Infinity, Infinity);
+  const max = new THREE.Vector2(-Infinity, -Infinity);
+  for (const worldPoint of points) {
+    const point = worldPoint.clone().applyMatrix4(camera.matrixWorldInverse);
+    min.x = Math.min(min.x, point.x); min.y = Math.min(min.y, point.y);
+    max.x = Math.max(max.x, point.x); max.y = Math.max(max.y, point.y);
+  }
+  const aspect = COVER_WIDTH / COVER_HEIGHT;
+  const halfHeight = Math.max((max.y-min.y)/2, (max.x-min.x)/(2*aspect), .001) / .75;
+  const mid = min.clone().add(max).multiplyScalar(.5);
+  Object.assign(camera, {top:mid.y+halfHeight, bottom:mid.y-halfHeight, left:mid.x-halfHeight*aspect, right:mid.x+halfHeight*aspect});
+  camera.updateProjectionMatrix();
+}
 async function renderCover(entry) {
   const [THREE, { STLLoader }] = await getSTLModules();
   const renderer = studioRenderer ??= await selectRenderer(THREE, true);
   const model = await loadSTL(THREE, STLLoader, entry);
+  let studio;
   try {
-    const scene = studioScene(THREE, renderer, model);
-    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 12);
-    camera.position.copy(modelDirection(THREE, entry.azimuth, entry.elevation)).multiplyScalar(4);
+    model.userData.coverColor = entry.color || '#b8bec7';
+    studio = await createCoverStudio(THREE, renderer, model);
+    const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, .01, 20);
+    camera.position.copy(modelDirection(THREE, entry.azimuth ?? 35, entry.elevation ?? 30)).multiplyScalar(6);
     camera.lookAt(0, 0, 0);
-    camera.updateMatrixWorld();
-
-    const point = new THREE.Vector3();
-    const min = new THREE.Vector2(Infinity, Infinity);
-    const max = new THREE.Vector2(-Infinity, -Infinity);
-    const positions = model.geometry.getAttribute('position');
-    for (let i = 0; i < positions.count; i++) {
-      point.fromBufferAttribute(positions, i).applyMatrix4(camera.matrixWorldInverse);
-      min.x = Math.min(min.x, point.x);
-      min.y = Math.min(min.y, point.y);
-      max.x = Math.max(max.x, point.x);
-      max.y = Math.max(max.y, point.y);
-    }
-    const aspect = COVER_WIDTH / COVER_HEIGHT;
-    const halfHeight = Math.max((max.y - min.y) / 2, (max.x - min.x) / (2 * aspect), .001) * 1.14;
-    const mid = min.clone().add(max).multiplyScalar(.5);
-    camera.top = mid.y + halfHeight;
-    camera.bottom = mid.y - halfHeight;
-    camera.left = mid.x - halfHeight * aspect;
-    camera.right = mid.x + halfHeight * aspect;
-    camera.updateProjectionMatrix();
-
+    frameCover(THREE, camera, studio.bounds.points);
     renderer.setSize(COVER_WIDTH, COVER_HEIGHT, false);
-    renderer.render(scene, camera);
-    return await snapshot(renderer);
+    renderer.render(studio.scene, camera);
+    if (!renderer.isWebGLRenderer) renderer.domElement.style.backgroundColor = 'transparent';
+    // Editor/download PNG is retained. saveCloudModel still compresses to 640×500 WebP.
+    return await snapshot(renderer, studio.backdrop);
   } finally {
+    studio?.dispose();
     disposeModel(model);
   }
 }
@@ -537,6 +796,7 @@ async function openModel(entry, push = true) {
   viewer?.dispose();
   viewer = undefined;
   activeModel = entry;
+  social?.openModel(entry);
   if (push && new URL(location.href).searchParams.get('model') !== entry.id) {
     const url = new URL(location.href);
     url.searchParams.set('model', entry.id);
@@ -677,6 +937,7 @@ function createCard(entry) {
   const meta = card.querySelector('.catalog-card-meta');
   meta.textContent = describeModel(entry);
   card.querySelector('.catalog-share').addEventListener('click', () => shareModel(entry, byId('catalog-share-status')));
+  social?.bindFavorite(card.querySelector('.favorite-button'), entry);
   card.dataset.modelId = entry.id;
   showSpecs(card.querySelector('.model-specs'), entry.metrics);
 
@@ -685,7 +946,10 @@ function createCard(entry) {
     ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.stl'
     : entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
   download.download = fileName;
-  if (entry.remote) {
+  if (entry.driveId) {
+    download.href = 'https://drive.google.com/file/d/' + entry.driveId + '/view';
+    download.addEventListener('click', event => downloadDriveModel(event, entry, fileName));
+  } else if (entry.remote) {
     download.href = cloudFile(entry.remote.stl_path, fileName);
     download.addEventListener('click', () => logModelEvent(entry, 'download'));
   } else if (entry.downloadUrl || entry.fileUrl) {
@@ -840,7 +1104,8 @@ function publicEntry(row) {
   return {
     id: row.id, title: row.title, description: row.description, category: row.category,
     createdAt: Date.parse(row.created_at), metrics: row.geometry_metrics,
-    color: '#d4af37', fileUrl: cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
+    color: '#d4af37', driveId: driveFileId(row.stl_path),
+    fileUrl: driveFileId(row.stl_path) ? undefined : cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
   };
 }
 
@@ -867,6 +1132,7 @@ async function listPublicModels(restart = false) {
     for (const row of rows) entries.set(row.id, publicEntry(row));
     note(libraryStatus, '');
     if (activeModel) showRelated(activeModel);
+    social?.catalogUpdated();
   } catch {
     if (version !== catalogVersion) return;
     catalogFailed = true;
@@ -988,6 +1254,7 @@ async function loadDashboard() {
 function showCatalog() {
   accountPanel.hidden = true;
   publicCatalog.hidden = false;
+  byId('requests-panel').hidden = true;
   byId('catalog-title').setAttribute('tabindex', '-1');
   byId('catalog-title').focus();
 }
@@ -995,6 +1262,7 @@ function showCatalog() {
 function showAccount() {
   if (!user) return;
   publicCatalog.hidden = true;
+  byId('requests-panel').hidden = true;
   accountPanel.hidden = false;
   byId('account-identity').textContent = user.user_metadata?.display_name || user.email;
   byId('account-heading').focus();
@@ -1004,6 +1272,9 @@ function showAccount() {
 function updateSession(session) {
   const before = user?.id;
   user = session?.user;
+  social?.sessionChanged(user);
+  if (before !== user?.id) { moderatorSession = undefined; if (driveImportRunning) driveImportCancelled = true; }
+  updateModeratorPanel();
   accountLink.textContent = user
     ? (user.user_metadata?.display_name || user.email || 'Личный кабинет')
     : 'Войти / Регистрация';
@@ -1114,6 +1385,156 @@ async function initCloud() {
     note(libraryStatus, 'Облачный каталог временно недоступен. Открыт локальный режим.', true);
   }
 }
+
+let driveImportRunning = false;
+let driveImportCancelled = false;
+let moderatorSession;
+function isModerator(account = user) {
+  return Boolean(account?.email && MODERATOR_EMAILS.includes(account.email.trim().toLowerCase()));
+}
+function updateModeratorPanel() {
+  const allowed = isModerator();
+  byId('drive-import-panel').hidden = !allowed;
+  byId('drive-import-start').disabled = !allowed || driveImportRunning;
+  if (!allowed) {
+    moderatorSession = undefined;
+    driveImportCancelled = true;
+    byId('drive-import-metadata').value = '';
+    byId('drive-import-status').textContent = '';
+    byId('drive-import-errors').replaceChildren();
+  }
+}
+function checkImportAccount(account) {
+  if (driveImportCancelled || user?.id !== account.id || !isModerator()) {
+    throw new Error('Импорт остановлен: изменился пользователь или нажата кнопка остановки.');
+  }
+}
+async function moderatorRead(params, account) {
+  checkImportAccount(account);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!moderatorSession || moderatorSession.owner !== account.id || moderatorSession.expiresAt < Date.now()+30000) {
+      const result = await drivePost('moderator-session', {moderatorEmail:account.email});
+      checkImportAccount(account);
+      moderatorSession = {...result, owner:account.id};
+    }
+    const result = await driveJSONP({...params, email:account.email, ticket:moderatorSession.ticket});
+    checkImportAccount(account);
+    if (result.ok) return result;
+    if (result.code === 'TICKET_EXPIRED') { moderatorSession = undefined; continue; }
+    throw new Error(result.error || 'Не удалось получить файлы Google Диска.');
+  }
+  throw new Error('Сессия импорта истекла. Повторите вход.');
+}
+function parseImportMetadata(text) {
+  if (!text.trim()) return new Map();
+  if (text.length > 1000000) throw new Error('JSON описаний должен быть меньше 1 МБ.');
+  let rows;
+  try { rows = JSON.parse(text); } catch { throw new Error('Некорректный JSON описаний. Проверьте кавычки и запятые.'); }
+  if (!Array.isArray(rows)) throw new Error('Нужен JSON-массив объектов с fileName, title, description и category.');
+  const map = new Map();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || typeof row.fileName !== 'string' || !row.fileName.trim()) throw new Error('У каждого описания укажите fileName.');
+    if (map.has(row.fileName)) throw new Error('В JSON повторяется fileName: ' + row.fileName);
+    for (const [key, max] of [['title',100],['description',500]]) {
+      if (row[key] !== undefined && (typeof row[key] !== 'string' || !row[key].trim() || row[key].trim().length > max)) throw new Error(row.fileName + ': неверное поле ' + key + '.');
+    }
+    if (row.category !== undefined && !CATEGORIES.slice(1).includes(row.category)) throw new Error(row.fileName + ': неизвестная категория. «Все» — фильтр, а не категория.');
+    map.set(row.fileName,row);
+  }
+  return map;
+}
+async function driveImportModelId(fileId) {
+  const bytes = new TextEncoder().encode('dexel-drive:' + fileId);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+  const hash = Array.from(digest, b=>b.toString(16).padStart(2,'0')).join('').slice(0,32).split('');
+  hash[12]='5'; hash[16]=((parseInt(hash[16],16)&3)|8).toString(16);
+  const h=hash.join('');
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+async function existingDriveFiles(account) {
+  const found = new Set();
+  for (let start=0;;start+=500) {
+    checkImportAccount(account);
+    const {data,error} = await supabase.from('models').select('id,stl_path').order('id').range(start,start+499);
+    if (error) throw new Error('Не удалось проверить существующие модели. Импорт не начат.');
+    for (const row of data) { const id=driveFileId(row.stl_path); if(id)found.add(id); }
+    if (data.length<500) return found;
+  }
+}
+byId('drive-import-stop').addEventListener('click', () => {
+  driveImportCancelled = true;
+  byId('drive-import-stop').disabled = true;
+  note(byId('drive-import-status'),'Останавливаем импорт после текущей операции…');
+});
+byId('drive-import-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!isModerator() || !supabase || driveImportRunning) return;
+  const account = {...user};
+  const progress = byId('drive-import-progress');
+  const status = byId('drive-import-status');
+  const errors = byId('drive-import-errors');
+  const metadataInput = byId('drive-import-metadata');
+  let imported=0, skipped=0, failed=0, processed=0;
+  driveImportRunning=true; driveImportCancelled=false;
+  updateModeratorPanel(); metadataInput.disabled=true;
+  byId('drive-import-stop').hidden=false; byId('drive-import-stop').disabled=false;
+  errors.replaceChildren();progress.hidden=false;progress.removeAttribute('value');
+  try {
+    driveEndpoint();
+    const metadata = parseImportMetadata(metadataInput.value);
+    note(status,'Проверяем права и получаем список STL…');
+    const existing = await existingDriveFiles(account);
+    const files=[]; const listed = new Set(); let cursor;
+    do {
+      const result=await moderatorRead({action:'list',...(cursor?{cursor}:{})},account);
+      if (!Array.isArray(result.files)) throw new Error('Google Диск вернул неверный список. Обновите Code.gs.');
+      for(const file of result.files) {
+        if (!/^[A-Za-z0-9_-]{10,160}$/.test(file.fileId) || typeof file.fileName!=='string') throw new Error('В списке неверные данные STL.');
+        if(!listed.has(file.fileId)){files.push(file);listed.add(file.fileId);}
+      }
+      cursor=result.cursor;
+    } while(cursor);
+    progress.max=Math.max(files.length,1);progress.value=0;
+    if(!files.length) {note(status,'В папке нет STL-файлов.');return;}
+    for(const file of files) {
+      checkImportAccount(account);
+      note(status,`Обработано ${processed} из ${files.length}. ${file.fileName}`);
+      try {
+        if(existing.has(file.fileId)){skipped++;continue;}
+        if(!Number.isFinite(file.size)||file.size<=0||file.size>MAX_FILE_SIZE)throw new Error('Файл пуст или превышает 20 МБ.');
+        const result=await moderatorRead({action:'import-read',id:file.fileId},account);
+        if(typeof result.base64!=='string'||result.base64.length>Math.ceil(MAX_FILE_SIZE/3)*4)throw new Error('Некорректный размер STL.');
+        const bytes=Uint8Array.from(atob(result.base64),char=>char.charCodeAt(0));
+        if(!bytes.byteLength||bytes.byteLength>MAX_FILE_SIZE)throw new Error('Некорректный размер STL.');
+        const localFile=new File([bytes],file.fileName,{type:'model/stl'});
+        const modelId=await driveImportModelId(file.fileId);
+        const selection={file:localFile,color:'#d4af37',azimuth:35,elevation:30};
+        const cover=await queueCover(selection,()=>!driveImportCancelled&&user?.id===account.id);
+        checkImportAccount(account);
+        const pngBytes=Uint8Array.from(atob(cover.split(',')[1]),char=>char.charCodeAt(0));
+        selection.png=new Blob([pngBytes],{type:'image/png'});
+        selection.importDrive={fileId:file.fileId,modelId};
+        const custom=metadata.get(file.fileName)||{};
+        let title=file.fileName.replace(/\.stl$/i,'').replace(/[_-]+/g,' ').trim();
+        title=(title.charAt(0).toUpperCase()+title.slice(1)).slice(0,100)||'3D-модель';
+        const fields={title:custom.title?.trim()||title,description:custom.description?.trim()||'3D-модель «'+title+'» для печати.',category:custom.category||'Другое',tags:[]};
+        await saveCloudModel(fields,selection,null,account);
+        imported++;existing.add(file.fileId);
+      } catch(error) {
+        if(driveImportCancelled||user?.id!==account.id)throw error;
+        failed++;
+        const li=document.createElement('li');li.textContent=file.fileName+': '+(error.message||'Ошибка импорта');errors.append(li);
+      } finally {processed++;progress.value=processed;}
+    }
+    note(status,`Готово. Добавлено: ${imported}. Пропущено: ${skipped}. Ошибок: ${failed}.`);
+  } catch(error) {
+    if(user?.id===account.id)note(status,`${error.message} Добавлено: ${imported}, пропущено: ${skipped}, ошибок: ${failed}.`,true);
+  } finally {
+    driveImportRunning=false;metadataInput.disabled=false;
+    byId('drive-import-stop').hidden=true;updateModeratorPanel();
+    if(user?.id===account.id){await listPublicModels(true);await loadDashboard();}
+  }
+});
 
 const cloudSetup = initCloud();
 accountLink.addEventListener('click', async () => {
@@ -1254,7 +1675,8 @@ async function renderEditorCover() {
   const version = previewRevision;
   const selection = {
     file,
-    fileUrl: !file && editing ? cloudFile(editing.stl_path) : undefined,
+    driveId: !file && editing ? driveFileId(editing.stl_path) : undefined,
+    fileUrl: !file && editing && !driveFileId(editing.stl_path) ? cloudFile(editing.stl_path) : undefined,
     color: '#d4af37',
     azimuth: Number(azimuthInput.value),
     elevation: Number(elevationInput.value)
@@ -1307,10 +1729,18 @@ for (const input of [azimuthInput, elevationInput]) {
 }
 
 async function saveCloudModel(fields, selection, row, account) {
-  const id = row?.id ?? crypto.randomUUID();
+  const id = row?.id ?? selection?.importDrive?.modelId ?? crypto.randomUUID();
   const prefix = account.id + '/' + id + '/' + crypto.randomUUID();
   const storage = supabase.storage.from(BUCKET);
   const uploaded = [];
+  let drivePath;
+  const cleanup = async paths => {
+    const failed = [];
+    for (const path of paths) {
+      try { await removeAsset(path); } catch { failed.push(path); }
+    }
+    if (failed.length) note(accountStatus, 'Модель сохранена/обновлена не полностью: часть старых или временных файлов не удалена. Проверьте хранилище.', true);
+  };
 
   async function upload(path, bytes, contentType) {
     uploaded.push(path);
@@ -1320,24 +1750,36 @@ async function saveCloudModel(fields, selection, row, account) {
 
   const payload = { ...fields };
   try {
-    if (selection?.file) {
+    if (selection?.importDrive) {
+      checkImportAccount(account);
+      const claim = await drivePost('import-claim', {fileId:selection.importDrive.fileId, modelId:id, moderatorEmail:account.email});
+      checkImportAccount(account);
+      if (claim.fileId !== selection.importDrive.fileId || claim.modelId !== id) throw new Error('Не удалось закрепить STL за моделью.');
       payload.geometry_metrics = selection.metrics;
-      payload.stl_path = prefix + '.stl';
-      await upload(payload.stl_path, selection.file, 'model/stl');
+      payload.stl_path = account.id + '/' + id + '/drive-' + claim.fileId + '.stl';
+      // Imported sources must NEVER be trashed when a cover or database write fails.
+    } else if (selection?.file) {
+      payload.geometry_metrics = selection.metrics;
+      if (!selection.file.size || selection.file.size > MAX_FILE_SIZE) throw new Error('STL должен быть не больше 20 МБ.');
+      const result = await drivePost('upload', {modelId:id, name:selection.file.name, base64:await fileBase64(selection.file)});
+      if (!/^[A-Za-z0-9_-]{10,160}$/.test(result.fileId || '')) throw new Error('Google Диск вернул неверный ID файла.');
+      payload.stl_path = account.id + '/' + id + '/drive-' + result.fileId + '.stl';
+      drivePath = payload.stl_path;
     }
     if (selection) {
-      payload.cover_path = prefix + '.png';
+      payload.cover_path = prefix + '.webp';
       payload.cover_azimuth = selection.azimuth;
       payload.cover_elevation = selection.elevation;
-      await upload(payload.cover_path, selection.png, 'image/png');
+      await upload(payload.cover_path, await webpCover(selection.png), 'image/webp');
     }
   } catch (error) {
-    if (uploaded.length) await storage.remove(uploaded).catch(() => {});
+    await cleanup([...uploaded, ...(drivePath ? [drivePath] : [])]);
     throw error;
   }
 
   let saved;
   try {
+    if (selection?.importDrive) checkImportAccount(account);
     const table = supabase.from('models');
     const write = () => {
       const change = row
@@ -1359,12 +1801,13 @@ async function saveCloudModel(fields, selection, row, account) {
       .select('*')
       .eq('id', id).eq('user_id', account.id).eq('deleting', false).maybeSingle();
     const matches = current && Object.entries(payload).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
-    const filesMatch = current && uploaded.length && uploaded.every(path => path === current.stl_path || path === current.cover_path);
+    const written = [...uploaded, ...(drivePath ? [drivePath] : [])];
+    const filesMatch = current && written.length && written.every(path => path === current.stl_path || path === current.cover_path);
     if (!error && (matches || filesMatch)) {
       saved = current;
     } else {
-      if (!error && uploaded.length) {
-        await storage.remove(uploaded.filter(path => path !== current?.stl_path && path !== current?.cover_path)).catch(() => {});
+      if (!error && written.length) {
+        await cleanup(written.filter(path => path !== current?.stl_path && path !== current?.cover_path));
       }
       throw new Error('Не удалось подтвердить сохранение. Обновите список моделей перед повторной попыткой.');
     }
@@ -1372,7 +1815,7 @@ async function saveCloudModel(fields, selection, row, account) {
 
   if (row) {
     const old = [row.stl_path, row.cover_path].filter(path => path !== saved.stl_path && path !== saved.cover_path);
-    if (old.length) await storage.remove(old).catch(() => {});
+    if (old.length) await cleanup(old);
   }
 }
 
@@ -1466,6 +1909,7 @@ deleteDialog.addEventListener('close', async () => {
       listPublicModels(true);
     }
 
+    if (driveFileId(row.stl_path)) await removeAsset(row.stl_path);
     const folder = owner + '/' + row.id;
     const storage = supabase.storage.from(BUCKET);
     const paths = [];
@@ -1560,3 +2004,17 @@ async function followLocation() {
 }
 window.addEventListener('popstate', followLocation);
 followLocation();
+
+social = initSocial({
+  getClient: () => supabase, getUser: () => user, getActiveModel: () => activeModel,
+  getEntries: () => entries, categories: CATEGORIES, maxFileSize: MAX_FILE_SIZE,
+  openAuth, showCatalog, showAccount, createCard, publicEntry, modelURL,
+  queueCover, saveCloudModel, listPublicModels, loadDashboard,
+  closeViewer: () => dialog.close(), cloudSetup
+});
+
+for (const entry of entries.values()) {
+  const card = cards.get(entry);
+  if (card) social.bindFavorite(card.querySelector('.favorite-button'), entry);
+}
+if (activeModel) social.openModel(activeModel);

@@ -411,3 +411,30 @@
   width: max-content; max-width: calc(100% - 32px); margin: 0; padding: 10px 16px;
   color: var(--paper); background: #25251f; border: 1px solid var(--accent); pointer-events: none;
 }
+
+.social-block { padding: 20px 0; border-top: 1px solid var(--line); }
+.social-block h2, .social-block h3 { margin: 0 0 12px; }
+#authors-list { display: flex; flex-wrap: wrap; gap: 8px; }
+#authors-list span { padding: 8px 12px; border: 1px solid var(--line); background: var(--panel); }
+.favorite-button, .account-tabs button, .request-vote { min-height: 40px; padding: 8px 12px; color: var(--accent); border: 1px solid #6f562c; background: #242017; cursor: pointer; }
+.favorite-button[aria-pressed="true"], .account-tabs button[aria-pressed="true"], .request-vote[aria-pressed="true"] { color: #171611; background: var(--accent); }
+.catalog-card-actions .favorite-button { grid-column: 1 / -1; }
+.account-tabs { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0; }
+.makes-grid, .requests-list { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+.make-card, .request-card { padding: 14px; border: 1px solid var(--line); background: var(--panel); overflow-wrap: anywhere; }
+.make-card img, .request-card img { display: block; width: 100%; max-height: 250px; object-fit: contain; background: #161713; }
+.make-card p, .request-card p { margin: 8px 0; }
+.request-card h2 { font-size: 1.15rem; margin: 0 0 8px; }
+.request-card select { width: 100%; margin: 6px 0; }
+#bulk-progress { width: 100%; accent-color: var(--accent); margin-top: 14px; }
+#bulk-errors { color: #ffb8a8; overflow-wrap: anywhere; }
+#make-open { width: auto; }
+@media (max-width: 700px) { .makes-grid, .requests-list { grid-template-columns: repeat(2,minmax(0,1fr)); } }
+@media (max-width: 480px) { .makes-grid, .requests-list { grid-template-columns: minmax(0,1fr); } }
+
+#drive-import-panel { margin-top: 24px; }
+#drive-import-metadata { box-sizing: border-box; width: 100%; min-height: 120px; resize: vertical; margin-block: 8px; padding: 12px; color: var(--paper); background: var(--panel); border: 1px solid var(--line); font: inherit; }
+#drive-import-metadata:focus { outline: 2px solid #d4af37; outline-offset: 2px; }
+#drive-import-progress { width: 100%; margin-top: 16px; accent-color: #d4af37; }
+#drive-import-help { color: var(--muted); font-size: .9rem; }
+#drive-import-errors { color: #ffb8a8; overflow-wrap: anywhere; }

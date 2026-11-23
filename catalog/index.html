@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=discovery">
+  <link rel="stylesheet" href="style.css?v=drive-import">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=technical-specs"></script>
+  <script type="module" src="script.js?v=studio-2"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -31,6 +31,7 @@
       <nav aria-label="Навигация каталога">
         <a href="../">На главную</a>
         <a class="catalog-header-link" href="../#stl-viewer">Открыть свой STL <span aria-hidden="true">↗</span></a>
+        <button class="account-link" id="open-requests" type="button">Стол заказов</button>
         <button class="account-link" id="account-link" type="button">Войти / Регистрация</button>
       </nav>
     </div>
@@ -58,6 +59,7 @@
       <p id="catalog-empty" class="library-status" role="status" hidden>Модели не найдены. Измените запрос или категорию.</p>
       <p id="catalog-share-status" class="library-status" role="status"></p>
       <noscript><p class="catalog-noscript">Для каталога и автогенерации обложек включите JavaScript.</p></noscript>
+      <section id="popular-authors" class="social-block" hidden><h2>Популярные авторы</h2><div id="authors-list"></div></section>
       <div id="library-grid" class="catalog-grid"></div>
       <button id="catalog-more" class="catalog-card-button account-more" type="button" hidden>Показать ещё</button>
       <template id="library-card">
@@ -69,6 +71,7 @@
             <p class="catalog-card-meta"></p>
             <div class="model-specs"></div>
             <div class="catalog-card-actions">
+              <button class="favorite-button" type="button" aria-pressed="false">♡ Избранное <span>0</span></button>
               <a class="catalog-card-button open-model" aria-haspopup="dialog">Смотреть в 3D</a>
               <a class="catalog-card-button catalogue-download" download>Скачать STL</a>
               <button class="catalog-share" type="button">Поделиться</button>
@@ -89,6 +92,11 @@
           <button id="sign-out" type="button" class="catalog-card-button">Выйти</button>
         </div>
       </div>
+      <div class="account-tabs" role="group" aria-label="Разделы кабинета">
+        <button id="account-models-tab" type="button" aria-pressed="true">Мои модели</button>
+        <button id="account-favorites-tab" type="button" aria-pressed="false">Избранное</button>
+      </div>
+      <div id="account-own-panel">
       <dl class="account-stats">
         <div><dt>Загружено моделей</dt><dd id="total-models">—</dd></div>
         <div><dt>Просмотров в 3D</dt><dd id="total-views">—</dd></div>
@@ -97,10 +105,31 @@
       </dl>
       <div class="account-model-heading">
         <h2>Мои модели</h2>
-        <button id="account-add" type="button" class="catalog-card-button library-add" aria-haspopup="dialog">+ Добавить новую модель</button>
+        <div class="account-actions"><button id="account-add" type="button" class="catalog-card-button library-add" aria-haspopup="dialog">+ Добавить новую модель</button>
+        <button id="bulk-open" type="button" class="catalog-card-button">Массовая загрузка</button></div>
       </div>
+      <section id="drive-import-panel" class="social-block" hidden aria-labelledby="drive-import-title">
+        <h2 id="drive-import-title">Импортировать с Google Диска</h2>
+        <p>Инструмент модератора. Новые STL из папки мастерской появятся в общем каталоге с автоматическими обложками. Уже добавленные файлы будут пропущены.</p>
+        <form id="drive-import-form">
+          <label for="drive-import-metadata">Названия и описания — JSON (необязательно)</label>
+          <textarea id="drive-import-metadata" rows="5" maxlength="1000000" aria-describedby="drive-import-help" placeholder='[{"fileName":"vase.stl","title":"Ваза","description":"Ваза для сухоцветов","category":"Для дома и быта"}]'></textarea>
+          <p id="drive-import-help">Массив объектов с полями fileName, title, description, category. Имя файла должно совпадать полностью. Без JSON название берётся из имени STL, категория — «Другое».</p>
+          <div class="account-actions"><button id="drive-import-start" class="catalog-card-button library-add" type="submit">Импортировать с Google Диска</button><button id="drive-import-stop" class="catalog-card-button" type="button" hidden>Остановить импорт</button></div>
+        </form>
+        <progress id="drive-import-progress" max="1" value="0" aria-label="Прогресс импорта" hidden></progress>
+        <p id="drive-import-status" class="library-status" role="status" aria-live="polite"></p>
+        <ul id="drive-import-errors" aria-label="Ошибки импорта"></ul>
+      </section>
       <p id="account-status" class="library-status" role="status"></p>
-      <div id="owned-models" class="owned-models"></div>
+      <div id="owned-models" class="owned-models"></div></div>
+      <div id="favorite-panel" hidden><h2>Избранное</h2><p id="favorite-status" class="library-status" role="status"></p><div id="favorite-grid" class="catalog-grid"></div></div>
+    </section>
+    <section id="requests-panel" hidden>
+      <div class="account-heading"><div><h1>Стол заказов</h1><p>Поделитесь идеей модели и поддержите понравившиеся запросы.</p></div>
+        <div class="account-actions"><button id="requests-back" class="catalog-card-button" type="button">К каталогу</button><button id="request-open-form" class="catalog-card-button library-add" type="button">Предложить модель</button></div></div>
+      <p id="requests-status" class="library-status" role="status"></p>
+      <div id="requests-list" class="requests-list"></div>
     </section>
   </main>
 
@@ -175,10 +204,10 @@
       </div>
       <fieldset id="cover-angle" class="cover-angle" hidden>
         <legend>Ракурс обложки</legend>
-        <label for="cover-azimuth">Поворот <output for="cover-azimuth" id="cover-azimuth-value">45°</output></label>
-        <input id="cover-azimuth" type="range" min="-180" max="180" value="45" step="5">
-        <label for="cover-elevation">Наклон <output for="cover-elevation" id="cover-elevation-value">40°</output></label>
-        <input id="cover-elevation" type="range" min="0" max="85" value="40" step="5">
+        <label for="cover-azimuth">Поворот <output for="cover-azimuth" id="cover-azimuth-value">35°</output></label>
+        <input id="cover-azimuth" type="range" min="-180" max="180" value="35" step="5">
+        <label for="cover-elevation">Наклон <output for="cover-elevation" id="cover-elevation-value">30°</output></label>
+        <input id="cover-elevation" type="range" min="0" max="85" value="30" step="5">
       </fieldset>
       <img id="library-cover" class="library-cover" width="640" height="500" alt="Предпросмотр обложки модели" hidden>
       <div id="upload-specs" class="model-specs"></div>
@@ -187,6 +216,35 @@
         <button class="button" type="submit" disabled>Добавить в каталог</button>
         <a id="download-cover" class="catalog-card-button" download hidden>Скачать готовую обложку (PNG)</a>
       </div>
+    </form>
+  </dialog>
+
+  <dialog id="bulk-dialog" class="model-dialog add-model-dialog" aria-labelledby="bulk-title">
+    <header class="model-header"><h2 id="bulk-title">Массовая загрузка</h2><button id="bulk-close" class="model-close" type="button" aria-label="Закрыть">×</button></header>
+    <form id="bulk-form" class="add-model-form">
+      <label for="bulk-files">STL-файлы, до 50 файлов по 20 МБ</label><input id="bulk-files" type="file" accept=".stl,model/stl" multiple required>
+      <label for="bulk-category">Общая категория</label><select id="bulk-category"></select>
+      <p>Загружаются модели, которыми вы вправе делиться. Название берётся из имени файла.</p>
+      <progress id="bulk-progress" value="0" max="1" hidden></progress><p id="bulk-status" class="library-status" role="status"></p><ul id="bulk-errors"></ul>
+      <button id="bulk-submit" class="button" type="submit">Загрузить модели</button>
+    </form>
+  </dialog>
+  <dialog id="make-dialog" class="model-dialog add-model-dialog" aria-labelledby="make-title">
+    <header class="model-header"><h2 id="make-title">Фото отпечатка</h2><form method="dialog"><button class="model-close" aria-label="Закрыть">×</button></form></header>
+    <form id="make-form" class="add-model-form">
+      <label for="make-photo">Фото JPG, PNG или WebP до 10 МБ</label><input id="make-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
+      <label for="make-material">Пластик</label><select id="make-material" required><option>PLA</option><option>PETG</option><option>ABS</option></select>
+      <label for="make-comment">Комментарий</label><textarea id="make-comment" maxlength="300" rows="3"></textarea>
+      <p id="make-status" class="library-status" role="status"></p><button class="button" type="submit">Опубликовать фото</button>
+    </form>
+  </dialog>
+  <dialog id="request-dialog" class="model-dialog add-model-dialog" aria-labelledby="request-title">
+    <header class="model-header"><h2 id="request-title">Предложить модель</h2><form method="dialog"><button class="model-close" aria-label="Закрыть">×</button></form></header>
+    <form id="request-form" class="add-model-form">
+      <label for="idea-title">Название</label><input id="idea-title" maxlength="100" required>
+      <label for="idea-description">Описание</label><textarea id="idea-description" maxlength="1000" rows="4" required></textarea>
+      <label for="idea-photo">Фото-референс, необязательно</label><input id="idea-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
+      <p id="idea-status" class="library-status" role="status"></p><button class="button" type="submit">Опубликовать идею</button>
     </form>
   </dialog>
 
@@ -227,9 +285,14 @@
       <p class="estimate-note">Оценка для замкнутой модели при заполнении 25%, без учёта стенок и поддержек.</p>
       <div class="viewer-links">
         <a id="viewer-order" class="catalog-order">Заказать печать в DEXEL 3D</a>
+        <button id="viewer-favorite" class="favorite-button" type="button" aria-pressed="false">♡ Избранное <span>0</span></button>
         <button id="viewer-share" type="button" class="catalog-share">Поделиться</button>
       </div>
       <p id="viewer-share-status" class="library-status" role="status"></p>
+      <section class="social-block" id="model-makes">
+        <div class="account-heading"><h3>Фото отпечатков пользователей</h3><button id="make-open" class="catalog-card-button" type="button">Загрузить фото результата</button></div>
+        <p id="makes-status" class="library-status" role="status"></p><div id="makes-grid" class="makes-grid"></div>
+      </section>
       <section id="related-models" hidden>
         <h3>Похожие модели из этой категории</h3>
         <div id="related-grid"></div>
