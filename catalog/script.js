@@ -1,7 +1,7 @@
 const GOOGLE_DRIVE_UPLOAD_URL = '';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
-import { initSocial } from './social.js?v=studio-2';
+import { initSocial } from './social.js?v=categories-optional-description';
 
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
 const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
@@ -9,7 +9,14 @@ const SUPABASE_ANON_KEY = 'sb_publishable_zXO4GY-2ou6HpvEWzeaO9Q_XT7uJkDg';
 
 const INFILL = 0.25;
 const DENSITY_G_CM3 = 1.25;
-const CATEGORIES = ['Все', 'Для дома и быта', 'Автотовары', 'Тактика и шевроны', 'Органайзеры', 'Аксессуары и подарки', 'Другое'];
+const CATEGORIES = [
+  'Все', 'Для дома и быта', 'Автотовары', 'Тактика и шевроны', 'Органайзеры',
+  'Аксессуары и подарки', 'Декор и интерьер', 'Вазы и кашпо', 'Кухня',
+  'Инструменты', 'Запчасти и ремонт', 'Крепления и держатели', 'Электроника и корпуса',
+  'Игрушки и игры', 'Фигурки и миниатюры', 'Косплей и реквизит',
+  'Сад и огород', 'Спорт и туризм', 'Для животных', 'Обучение и наука',
+  'Прототипы и макеты', 'Другое'
+];
 
 // Add public STL entries here. Version the file URL when replacing an existing STL.
 const publishedModels = [
@@ -1436,7 +1443,7 @@ function parseImportMetadata(text) {
     if (!row || typeof row !== 'object' || typeof row.fileName !== 'string' || !row.fileName.trim()) throw new Error('У каждого описания укажите fileName.');
     if (map.has(row.fileName)) throw new Error('В JSON повторяется fileName: ' + row.fileName);
     for (const [key, max] of [['title',100],['description',500]]) {
-      if (row[key] !== undefined && (typeof row[key] !== 'string' || !row[key].trim() || row[key].trim().length > max)) throw new Error(row.fileName + ': неверное поле ' + key + '.');
+      if (row[key] !== undefined && (typeof row[key] !== 'string' || (key === 'title' && !row[key].trim()) || row[key].trim().length > max)) throw new Error(row.fileName + ': неверное поле ' + key + '.');
     }
     if (row.category !== undefined && !CATEGORIES.slice(1).includes(row.category)) throw new Error(row.fileName + ': неизвестная категория. «Все» — фильтр, а не категория.');
     map.set(row.fileName,row);
@@ -1517,7 +1524,7 @@ byId('drive-import-form').addEventListener('submit', async event => {
         const custom=metadata.get(file.fileName)||{};
         let title=file.fileName.replace(/\.stl$/i,'').replace(/[_-]+/g,' ').trim();
         title=(title.charAt(0).toUpperCase()+title.slice(1)).slice(0,100)||'3D-модель';
-        const fields={title:custom.title?.trim()||title,description:custom.description?.trim()||'3D-модель «'+title+'» для печати.',category:custom.category||'Другое',tags:[]};
+        const fields={title:custom.title?.trim()||title,description:custom.description?.trim()||'',category:custom.category||'Другое',tags:[]};
         await saveCloudModel(fields,selection,null,account);
         imported++;existing.add(file.fileId);
       } catch(error) {
@@ -1847,8 +1854,8 @@ addForm.addEventListener('submit', async event => {
   if (saving || addButton.disabled || (!editing && !draft?.file)) return;
   const data = new FormData(addForm);
   const fields = { title: data.get('title').trim(), description: data.get('description').trim(), category: data.get('category') };
-  if (!fields.title || !fields.description) {
-    note(addStatus, 'Укажите название и описание модели.', true);
+  if (!fields.title) {
+    note(addStatus, 'Укажите название модели.', true);
     return;
   }
   if (supabase) {
