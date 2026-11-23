@@ -1,4 +1,4 @@
-const GOOGLE_DRIVE_UPLOAD_URL = '';
+const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 
 import { initSocial } from './social.js?v=social';
 
