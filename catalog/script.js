@@ -1,4 +1,5 @@
 const GOOGLE_DRIVE_UPLOAD_URL = '';
+const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
 import { initSocial } from './social.js?v=social';
 
@@ -1158,6 +1159,8 @@ function updateSession(session) {
   const before = user?.id;
   user = session?.user;
   social?.sessionChanged(user);
+  if (before !== user?.id) { moderatorSession = undefined; if (driveImportRunning) driveImportCancelled = true; }
+  updateModeratorPanel();
   accountLink.textContent = user
     ? (user.user_metadata?.display_name || user.email || 'Личный кабинет')
     : 'Войти / Регистрация';
@@ -1268,6 +1271,156 @@ async function initCloud() {
     note(libraryStatus, 'Облачный каталог временно недоступен. Открыт локальный режим.', true);
   }
 }
+
+let driveImportRunning = false;
+let driveImportCancelled = false;
+let moderatorSession;
+function isModerator(account = user) {
+  return Boolean(account?.email && MODERATOR_EMAILS.includes(account.email.trim().toLowerCase()));
+}
+function updateModeratorPanel() {
+  const allowed = isModerator();
+  byId('drive-import-panel').hidden = !allowed;
+  byId('drive-import-start').disabled = !allowed || driveImportRunning;
+  if (!allowed) {
+    moderatorSession = undefined;
+    driveImportCancelled = true;
+    byId('drive-import-metadata').value = '';
+    byId('drive-import-status').textContent = '';
+    byId('drive-import-errors').replaceChildren();
+  }
+}
+function checkImportAccount(account) {
+  if (driveImportCancelled || user?.id !== account.id || !isModerator()) {
+    throw new Error('Импорт остановлен: изменился пользователь или нажата кнопка остановки.');
+  }
+}
+async function moderatorRead(params, account) {
+  checkImportAccount(account);
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!moderatorSession || moderatorSession.owner !== account.id || moderatorSession.expiresAt < Date.now()+30000) {
+      const result = await drivePost('moderator-session', {moderatorEmail:account.email});
+      checkImportAccount(account);
+      moderatorSession = {...result, owner:account.id};
+    }
+    const result = await driveJSONP({...params, email:account.email, ticket:moderatorSession.ticket});
+    checkImportAccount(account);
+    if (result.ok) return result;
+    if (result.code === 'TICKET_EXPIRED') { moderatorSession = undefined; continue; }
+    throw new Error(result.error || 'Не удалось получить файлы Google Диска.');
+  }
+  throw new Error('Сессия импорта истекла. Повторите вход.');
+}
+function parseImportMetadata(text) {
+  if (!text.trim()) return new Map();
+  if (text.length > 1000000) throw new Error('JSON описаний должен быть меньше 1 МБ.');
+  let rows;
+  try { rows = JSON.parse(text); } catch { throw new Error('Некорректный JSON описаний. Проверьте кавычки и запятые.'); }
+  if (!Array.isArray(rows)) throw new Error('Нужен JSON-массив объектов с fileName, title, description и category.');
+  const map = new Map();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || typeof row.fileName !== 'string' || !row.fileName.trim()) throw new Error('У каждого описания укажите fileName.');
+    if (map.has(row.fileName)) throw new Error('В JSON повторяется fileName: ' + row.fileName);
+    for (const [key, max] of [['title',100],['description',500]]) {
+      if (row[key] !== undefined && (typeof row[key] !== 'string' || !row[key].trim() || row[key].trim().length > max)) throw new Error(row.fileName + ': неверное поле ' + key + '.');
+    }
+    if (row.category !== undefined && !CATEGORIES.slice(1).includes(row.category)) throw new Error(row.fileName + ': неизвестная категория. «Все» — фильтр, а не категория.');
+    map.set(row.fileName,row);
+  }
+  return map;
+}
+async function driveImportModelId(fileId) {
+  const bytes = new TextEncoder().encode('dexel-drive:' + fileId);
+  const digest = new Uint8Array(await crypto.subtle.digest('SHA-256',bytes));
+  const hash = Array.from(digest, b=>b.toString(16).padStart(2,'0')).join('').slice(0,32).split('');
+  hash[12]='5'; hash[16]=((parseInt(hash[16],16)&3)|8).toString(16);
+  const h=hash.join('');
+  return `${h.slice(0,8)}-${h.slice(8,12)}-${h.slice(12,16)}-${h.slice(16,20)}-${h.slice(20)}`;
+}
+async function existingDriveFiles(account) {
+  const found = new Set();
+  for (let start=0;;start+=500) {
+    checkImportAccount(account);
+    const {data,error} = await supabase.from('models').select('id,stl_path').order('id').range(start,start+499);
+    if (error) throw new Error('Не удалось проверить существующие модели. Импорт не начат.');
+    for (const row of data) { const id=driveFileId(row.stl_path); if(id)found.add(id); }
+    if (data.length<500) return found;
+  }
+}
+byId('drive-import-stop').addEventListener('click', () => {
+  driveImportCancelled = true;
+  byId('drive-import-stop').disabled = true;
+  note(byId('drive-import-status'),'Останавливаем импорт после текущей операции…');
+});
+byId('drive-import-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!isModerator() || !supabase || driveImportRunning) return;
+  const account = {...user};
+  const progress = byId('drive-import-progress');
+  const status = byId('drive-import-status');
+  const errors = byId('drive-import-errors');
+  const metadataInput = byId('drive-import-metadata');
+  let imported=0, skipped=0, failed=0, processed=0;
+  driveImportRunning=true; driveImportCancelled=false;
+  updateModeratorPanel(); metadataInput.disabled=true;
+  byId('drive-import-stop').hidden=false; byId('drive-import-stop').disabled=false;
+  errors.replaceChildren();progress.hidden=false;progress.removeAttribute('value');
+  try {
+    driveEndpoint();
+    const metadata = parseImportMetadata(metadataInput.value);
+    note(status,'Проверяем права и получаем список STL…');
+    const existing = await existingDriveFiles(account);
+    const files=[]; const listed = new Set(); let cursor;
+    do {
+      const result=await moderatorRead({action:'list',...(cursor?{cursor}:{})},account);
+      if (!Array.isArray(result.files)) throw new Error('Google Диск вернул неверный список. Обновите Code.gs.');
+      for(const file of result.files) {
+        if (!/^[A-Za-z0-9_-]{10,160}$/.test(file.fileId) || typeof file.fileName!=='string') throw new Error('В списке неверные данные STL.');
+        if(!listed.has(file.fileId)){files.push(file);listed.add(file.fileId);}
+      }
+      cursor=result.cursor;
+    } while(cursor);
+    progress.max=Math.max(files.length,1);progress.value=0;
+    if(!files.length) {note(status,'В папке нет STL-файлов.');return;}
+    for(const file of files) {
+      checkImportAccount(account);
+      note(status,`Обработано ${processed} из ${files.length}. ${file.fileName}`);
+      try {
+        if(existing.has(file.fileId)){skipped++;continue;}
+        if(!Number.isFinite(file.size)||file.size<=0||file.size>MAX_FILE_SIZE)throw new Error('Файл пуст или превышает 20 МБ.');
+        const result=await moderatorRead({action:'import-read',id:file.fileId},account);
+        if(typeof result.base64!=='string'||result.base64.length>Math.ceil(MAX_FILE_SIZE/3)*4)throw new Error('Некорректный размер STL.');
+        const bytes=Uint8Array.from(atob(result.base64),char=>char.charCodeAt(0));
+        if(!bytes.byteLength||bytes.byteLength>MAX_FILE_SIZE)throw new Error('Некорректный размер STL.');
+        const localFile=new File([bytes],file.fileName,{type:'model/stl'});
+        const modelId=await driveImportModelId(file.fileId);
+        const selection={file:localFile,color:'#d4af37',azimuth:45,elevation:40};
+        const cover=await queueCover(selection,()=>!driveImportCancelled&&user?.id===account.id);
+        checkImportAccount(account);
+        const pngBytes=Uint8Array.from(atob(cover.split(',')[1]),char=>char.charCodeAt(0));
+        selection.png=new Blob([pngBytes],{type:'image/png'});
+        selection.importDrive={fileId:file.fileId,modelId};
+        const custom=metadata.get(file.fileName)||{};
+        let title=file.fileName.replace(/\.stl$/i,'').replace(/[_-]+/g,' ').trim();
+        title=(title.charAt(0).toUpperCase()+title.slice(1)).slice(0,100)||'3D-модель';
+        const fields={title:custom.title?.trim()||title,description:custom.description?.trim()||'3D-модель «'+title+'» для печати.',category:custom.category||'Другое',tags:[]};
+        await saveCloudModel(fields,selection,null,account);
+        imported++;existing.add(file.fileId);
+      } catch(error) {
+        if(driveImportCancelled||user?.id!==account.id)throw error;
+        failed++;
+        const li=document.createElement('li');li.textContent=file.fileName+': '+(error.message||'Ошибка импорта');errors.append(li);
+      } finally {processed++;progress.value=processed;}
+    }
+    note(status,`Готово. Добавлено: ${imported}. Пропущено: ${skipped}. Ошибок: ${failed}.`);
+  } catch(error) {
+    if(user?.id===account.id)note(status,`${error.message} Добавлено: ${imported}, пропущено: ${skipped}, ошибок: ${failed}.`,true);
+  } finally {
+    driveImportRunning=false;metadataInput.disabled=false;
+    byId('drive-import-stop').hidden=true;updateModeratorPanel();
+    if(user?.id===account.id){await listPublicModels(true);await loadDashboard();}
+  }
+});
 
 const cloudSetup = initCloud();
 accountLink.addEventListener('click', async () => {
@@ -1462,7 +1615,7 @@ for (const input of [azimuthInput, elevationInput]) {
 }
 
 async function saveCloudModel(fields, selection, row, account) {
-  const id = row?.id ?? crypto.randomUUID();
+  const id = row?.id ?? selection?.importDrive?.modelId ?? crypto.randomUUID();
   const prefix = account.id + '/' + id + '/' + crypto.randomUUID();
   const storage = supabase.storage.from(BUCKET);
   const uploaded = [];
@@ -1483,7 +1636,15 @@ async function saveCloudModel(fields, selection, row, account) {
 
   const payload = { ...fields };
   try {
-    if (selection?.file) {
+    if (selection?.importDrive) {
+      checkImportAccount(account);
+      const claim = await drivePost('import-claim', {fileId:selection.importDrive.fileId, modelId:id, moderatorEmail:account.email});
+      checkImportAccount(account);
+      if (claim.fileId !== selection.importDrive.fileId || claim.modelId !== id) throw new Error('Не удалось закрепить STL за моделью.');
+      payload.geometry_metrics = selection.metrics;
+      payload.stl_path = account.id + '/' + id + '/drive-' + claim.fileId + '.stl';
+      // Imported sources must NEVER be trashed when a cover or database write fails.
+    } else if (selection?.file) {
       payload.geometry_metrics = selection.metrics;
       if (!selection.file.size || selection.file.size > MAX_FILE_SIZE) throw new Error('STL должен быть не больше 20 МБ.');
       const result = await drivePost('upload', {modelId:id, name:selection.file.name, base64:await fileBase64(selection.file)});
@@ -1504,6 +1665,7 @@ async function saveCloudModel(fields, selection, row, account) {
 
   let saved;
   try {
+    if (selection?.importDrive) checkImportAccount(account);
     const table = supabase.from('models');
     const write = () => {
       const change = row
