@@ -1277,7 +1277,13 @@ function logModelEvent(entry, kind) {
     const item = owned.find(row => row.id === modelId);
     if (item) {
       Object.assign(item, counters);
-      if (!accountPanel.hidden) renderOwned();
+      if (!accountPanel.hidden) {
+        const {data: counts} = await supabase.from('models')
+          .select('real_views_count,real_downloads_count').eq('id', modelId).maybeSingle();
+        const latest = owned.find(row => row.id === modelId);
+        if (latest && counts) Object.assign(latest, counts);
+        if (!accountPanel.hidden) renderOwned();
+      }
     }
   }).catch(() => {});
   pendingEvents.set(modelId, pending);
@@ -1287,10 +1293,14 @@ function logModelEvent(entry, kind) {
   return pending;
 }
 
+function formatRealCount(value) {
+  return Number.isInteger(value) ? number.format(value) : '—';
+}
+
 function countersText(row) {
   return [
-    'Просмотры: ' + number.format(row.views_count),
-    'Скачивания: ' + number.format(row.downloads_count),
+    'Реальные просмотры: ' + formatRealCount(row.real_views_count),
+    'Реальные скачивания: ' + formatRealCount(row.real_downloads_count),
     'Клики по заказу: ' + number.format(row.orders_count)
   ].join(' · ');
 }
@@ -1298,9 +1308,10 @@ function countersText(row) {
 function renderOwned() {
   ownedList.replaceChildren();
   byId('total-models').textContent = number.format(owned.length);
-  for (const [key, id] of [['views_count', 'total-views'], ['downloads_count', 'total-downloads'], ['orders_count', 'total-orders']]) {
-    const total = owned.reduce((sum, row) => sum + BigInt(row[key] ?? 0), 0n);
-    byId(id).textContent = number.format(total);
+  for (const [key, id] of [['real_views_count', 'total-views'], ['real_downloads_count', 'total-downloads'], ['orders_count', 'total-orders']]) {
+    const available = owned.every(row => row[key] != null);
+    const total = available ? owned.reduce((sum, row) => sum + BigInt(row[key]), 0n) : null;
+    byId(id).textContent = available ? number.format(total) : '—';
   }
   for (const row of owned) {
     const card = document.createElement('article');
@@ -1704,6 +1715,31 @@ function showExistingCover() {
   }
 }
 
+const publicCountFields = byId('public-count-fields');
+const publicViews = byId('public-views');
+const publicDownloads = byId('public-downloads');
+
+function setEditorCounts(row) {
+  const editable = Boolean(supabase && isModerator() && !row?.builtin);
+  publicCountFields.hidden = !editable;
+  publicCountFields.disabled = !editable;
+  if (!editable) return;
+  for (const [input, value] of [[publicViews, row?.views_count], [publicDownloads, row?.downloads_count]]) {
+    input.value = value ?? '';
+    input.max = row ? '9007199254740991' : '2147483647';
+  }
+  byId('editor-real-counts').textContent = 'Реальная статистика: '
+    + formatRealCount(row ? row.real_views_count : 0) + ' просмотров · '
+    + formatRealCount(row ? row.real_downloads_count : 0) + ' скачиваний';
+}
+
+byId('random-public-counts').addEventListener('click', () => {
+  if (!isModerator() || publicCountFields.disabled) return;
+  const views = 25 + Math.floor(Math.random() * 176);
+  publicViews.value = String(views);
+  publicDownloads.value = String(Math.floor(views * (.08 + Math.random() * .22)));
+});
+
 function openEditor(row) {
   if (addDialog.open || saving) return;
   if (row && (row.builtin || row.user_id !== user?.id) && !isModerator()) return;
@@ -1713,6 +1749,7 @@ function openEditor(row) {
   editorPalette.set(row?.cover_color ?? row?.color);
   recapture.hidden = !row;
   setShowcaseFields(editorShowcase, row);
+  setEditorCounts(row);
   clearEditorPreview();
   note(addStatus, '');
   setAngleReadouts();
@@ -2083,6 +2120,12 @@ addForm.addEventListener('submit', async event => {
     note(addStatus, 'Укажите название модели.', true);
     return;
   }
+  if (supabase && isModerator() && !editing?.builtin && !publicCountFields.disabled) {
+    for (const [key, input] of [['views_count', publicViews], ['downloads_count', publicDownloads]]) {
+      const value = input.valueAsNumber;
+      if (Number.isSafeInteger(value) && value >= 0 && value !== Number(editing?.[key] ?? 0)) fields[key] = value;
+    }
+  }
   if (supabase) {
     fields.tags = [...new Set(data.get('tags').split(',').map(tag => tag.trim().replace(/^#+/, '')).filter(Boolean))];
     if (fields.tags.length > 8) {
@@ -2095,12 +2138,17 @@ addForm.addEventListener('submit', async event => {
     }
   }
   saving = true;
+  if (!publicCountFields.hidden) publicCountFields.disabled = true;
   const editorControls = [byId('model-attribution-fields'), editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
   addButton.disabled = true;
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
     if (supabase) {
+      if ('views_count' in fields || 'downloads_count' in fields) {
+        const { error } = await supabase.from('models').select('real_views_count,real_downloads_count').limit(0);
+        if (error) throw new Error('Для настройки публичных счётчиков выполните catalog/live-activity.sql в Supabase.');
+      }
       if ('original_author' in fields) {
         const table = editing?.builtin ? 'catalog_builtin_models' : 'models';
         const {error} = await supabase.from(table).select('original_author,source_url').limit(0);
@@ -2131,6 +2179,7 @@ addForm.addEventListener('submit', async event => {
     note(addStatus, error.message || 'Не удалось сохранить модель. Попробуйте ещё раз.', true);
   } finally {
     saving = false;
+    publicCountFields.disabled = publicCountFields.hidden || !isModerator();
     for (const control of editorControls) control.disabled = false;
     addButton.disabled = !editing && !draft?.file;
   }
