@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=makes-delete-1">
+  <link rel="stylesheet" href="style.css?v=header-1">
   <script type="importmap">
     {
       "imports": {
@@ -19,25 +19,48 @@
     }
   </script>
   <script type="module" src="script.js?v=shared-data-1"></script>
+<link rel="stylesheet" href="../site-header.css?v=1">
+<script src="../site-header.js?v=1" defer></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
-  <header class="catalog-header">
-    <div class="wrap catalog-header-inner">
-      <a class="catalog-brand" href="../" aria-label="DEXEL 3D, на главную">
-        <img src="../assets/dexel-logo-clear.webp?v=gold" width="384" height="461" alt="">
-        <span>DEXEL <strong>3D</strong></span>
-      </a>
-      <nav aria-label="Навигация каталога">
-        <a href="../">На главную</a>
-        <a class="catalog-header-link" href="../#stl-viewer">Открыть свой STL <span aria-hidden="true">↗</span></a>
-        <button class="account-link" id="open-requests" type="button">Стол заказов</button>
-        <button class="account-link" id="account-link" type="button">Войти / Регистрация</button>
-      </nav>
+  <header class="site-header" data-site-header>
+  <div class="site-header-inner">
+    <a class="site-header-brand" href="../" aria-label="DEXEL 3D, на главную">
+      <img src="../assets/dexel-logo-clear.webp?v=gold" width="384" height="461" alt="">
+      <span>DEXEL <strong>3D</strong></span>
+    </a>
+    <div class="site-header-mobile">
+      <a class="site-header-catalog" href="./" aria-current="page">Каталог</a>
+      <button class="site-header-toggle" type="button" aria-label="Открыть меню" aria-expanded="false" aria-controls="site-header-panel" hidden>
+        <span aria-hidden="true"></span><span aria-hidden="true"></span><span aria-hidden="true"></span>
+      </button>
     </div>
-  </header>
+    <div class="site-header-panel" id="site-header-panel">
+      <nav class="site-header-nav" aria-label="Основная навигация">
+        <a class="site-header-catalog" href="./" aria-current="page">Каталог 3D-моделей</a>
+        <a href="../#stl-viewer">3D-просмотрщик</a>
+        <a href="../#works">Работы</a>
+        <a href="../#prices">Цены</a>
+        <a href="../#about">Мастерская</a>
+        <a href="../#process">Как заказать</a>
+      </nav>
+      <div class="site-header-actions">
+        <div class="site-header-platforms">
+          <a href="https://ozon.ru/s/voxel-3d-5918074" target="_blank" rel="noopener noreferrer" aria-label="Магазин DEXEL 3D на Ozon, новая вкладка">Ozon</a>
+          <a href="https://max.ru/channel_VOXEL3D" target="_blank" rel="noopener noreferrer" aria-label="Канал DEXEL 3D в MAX, новая вкладка">MAX</a>
+        </div>
+        <a class="site-header-order" href="../#request">Заказать печать <span aria-hidden="true">↗</span></a>
+      </div>
+    </div>
+  </div>
+</header>
 
   <main class="wrap catalog-main" id="main">
+    <div class="catalog-account-nav" aria-label="Разделы каталога" role="group">
+      <button class="account-link" id="open-requests" type="button">Стол заказов</button>
+      <button class="account-link" id="account-link" type="button">Войти / Регистрация</button>
+    </div>
     <section id="public-catalog" aria-labelledby="catalog-title">
       <div class="catalog-heading">
         <h1 id="catalog-title">Каталог <em>3D-моделей</em></h1>
