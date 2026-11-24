@@ -94,7 +94,6 @@ export function initModelGallery(api) {
     $('details-description').textContent=entry.description||'Описание не добавлено.';
     $('details-meta').textContent=api.describeModel(entry);
     api.showSpecs($('details-specs'),entry.metrics);
-    $('details-order').href=api.orderURL(entry);
     slides=[];
     const cover=entry.cover||entry.placeholder;if(cover)slides.push(cover);
     if(entry.remote)for(const path of entry.remote.media_paths||[])slides.push(mediaURL(path));
@@ -113,7 +112,7 @@ export function initModelGallery(api) {
   dialog.addEventListener('keydown',e=>{if(e.target.closest('a,input,textarea,select'))return;if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();showSlide(index+(e.key==='ArrowRight'?1:-1));}});
   $('details-image').addEventListener('error',()=>{$('details-count').textContent='Изображение недоступно. Выберите другое.';});
   $('details-3d').addEventListener('click',()=>{const entry=active;dialog.close();api.openModel(entry);});
-  $('details-order').addEventListener('click',event=>api.recordOrder(event,active));
+  $('details-order').addEventListener('click',()=>api.openPrintOrder(active));
   dialog.addEventListener('close',()=>{if(dialog.open)return;revoke(detailURLs);slides=[];$('details-image').removeAttribute('src');$('details-thumbs').replaceChildren();opener?.focus();});
   return {
     open,prepare,remove,

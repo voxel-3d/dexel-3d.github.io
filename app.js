@@ -107,11 +107,37 @@ function isValidOrderContact(value){
 const briefForm=document.getElementById('brief-form');
 const catalogOrder = /^#request\?(.+)$/.exec(window.location.hash);
 if (catalogOrder) {
-  const modelName = new URLSearchParams(catalogOrder[1]).get('model')?.trim().slice(0, 100);
+  const params = new URLSearchParams(catalogOrder[1]);
+  const value = (key, max) => (params.get(key) || '').trim().slice(0, max);
+  const modelName = value('model', 100);
   const details = briefForm.elements.namedItem('details');
   if (modelName && details && !details.value) {
     briefForm.elements.namedItem('type').value = 'Печать по моей модели';
-    details.value = 'Модель из каталога: ' + modelName;
+    const quantity = Number(params.get('qty'));
+    const color = value('color', 120);
+    const estimate = Number(params.get('estimate'));
+    const lines = ['Модель из каталога: ' + modelName];
+    const modelId = value('modelId', 100);
+    if (modelId) lines.push('ID: ' + modelId);
+    try {
+      const link = new URL(params.get('modelURL'));
+      if (link.origin === location.origin && link.pathname === '/catalog/' &&
+          modelId && link.searchParams.get('model') === modelId) lines.push('Ссылка: ' + link.href);
+    } catch { /* A locally stored model has no public link. */ }
+    const material = value('material', 4);
+    const strength = value('strength', 80);
+    if (['PETG', 'PLA', 'ABS'].includes(material)) lines.push('Материал: ' + material);
+    if (color) {
+      briefForm.elements.namedItem('color').value = color;
+      lines.push('Цвет: ' + color);
+    }
+    if (strength) lines.push('Прочность: ' + strength);
+    if (Number.isInteger(quantity) && quantity >= 1 && quantity <= 10000) {
+      briefForm.elements.namedItem('qty').value = quantity;
+      lines.push('Тираж: ' + quantity + ' шт.');
+    }
+    if (Number.isSafeInteger(estimate) && estimate > 0) lines.push('Ориентир за тираж: ' + estimate + ' ₽');
+    details.value = lines.join('\n');
   }
   history.replaceState(history.state, '', '#request');
   requestAnimationFrame(() => document.getElementById('request').scrollIntoView());

@@ -1,4 +1,5 @@
-import { initModelGallery } from './gallery.js?v=media-1';
+import { initPrintOrder } from './print-order.js?v=1';
+import { initModelGallery } from './gallery.js?v=showcase-1';
 let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
@@ -817,7 +818,7 @@ async function openModel(entry, push = true) {
   byId('viewer-share-status').textContent = '';
   byId('printer-bed').checked = byId('model-wireframe').checked = false;
   showSpecs(byId('viewer-specs'), entry.metrics);
-  byId('viewer-order').href = orderURL(entry);
+  byId('viewer-print-only').hidden = canDownload(entry);
   showRelated(entry);
   logModelEvent(entry, 'view');
   preview.removeAttribute('src');
@@ -878,19 +879,69 @@ function bindModelLink(link, entry) {
   });
 }
 
-function orderURL(entry) {
-  return '../#request?' + new URLSearchParams({ model: entry.title });
-}
-
-async function recordOrder(event, entry) {
-  if (!entry.remote) return;
-  const recorded = logModelEvent(entry, 'order');
-  if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return;
-  event.preventDefault();
-  const href = event.currentTarget.href;
-  await Promise.race([recorded, new Promise(resolve => setTimeout(resolve, 1000))]);
+async function submitPrintOrder(entry, href) {
+  if (entry.remote) {
+    await Promise.race([logModelEvent(entry, 'order'), new Promise(resolve => setTimeout(resolve, 1000))]).catch(() => {});
+  }
   location.assign(href);
 }
+
+const storefront = entry => entry.remote ?? entry;
+const canDownload = entry => storefront(entry).allow_download !== false;
+const isFeatured = entry => storefront(entry).is_featured === true;
+const editorShowcase = byId('showcase-fields');
+const moderatorShowcase = byId('moderator-showcase-fields');
+for (const fields of [editorShowcase, moderatorShowcase]) {
+  fields.append(byId('showcase-settings').content.cloneNode(true));
+}
+function setShowcaseFields(fields, row) {
+  fields.querySelector('[name=is_featured]').checked = row?.is_featured === true;
+  fields.querySelector('[name=featured_rank]').value = row?.featured_rank ?? 100;
+  fields.querySelector('[name=allow_download]').checked = row?.allow_download !== false;
+}
+function readShowcaseFields(fields) {
+  return {
+    is_featured: fields.querySelector('[name=is_featured]').checked,
+    featured_rank: fields.querySelector('[name=featured_rank]').valueAsNumber,
+    allow_download: fields.querySelector('[name=allow_download]').checked
+  };
+}
+const showcaseDialog = byId('showcase-dialog');
+let moderatedModel;
+function openShowcaseEditor(row) {
+  if (!isModerator() || showcaseDialog.open) return;
+  moderatedModel = row;
+  byId('showcase-title').textContent = row.title;
+  setShowcaseFields(moderatorShowcase, row);
+  note(byId('showcase-status'), '');
+  showcaseDialog.showModal();
+}
+byId('showcase-close').addEventListener('click', () => showcaseDialog.close());
+byId('showcase-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  if (!isModerator() || !moderatedModel) return;
+  const submit = event.submitter || byId('showcase-form').querySelector('[type=submit]');
+  if (submit.disabled) return;
+  const row = moderatedModel;
+  const settings = readShowcaseFields(moderatorShowcase);
+  submit.disabled = true;
+  try {
+    const {error} = await supabase.rpc('set_showcase_settings', {
+      model_id: row.id, featured: settings.is_featured, rank: settings.featured_rank,
+      downloadable: settings.allow_download
+    });
+    if (error) throw error;
+    if (moderatedModel === row) showcaseDialog.close();
+    await listPublicModels(true);
+  } catch (error) {
+    if (moderatedModel === row) note(byId('showcase-status'), error.code === 'PGRST202'
+      ? 'Выполните catalog/showcase-and-orders.sql в Supabase.'
+      : 'Не удалось сохранить настройки витрины.', true);
+  } finally {
+    submit.disabled = false;
+  }
+});
+const openPrintOrder = initPrintOrder({readMetrics, modelURL, recordOrder: submitPrintOrder});
 
 async function shareModel(entry, message) {
   const url = modelURL(entry);
@@ -951,29 +1002,36 @@ function createCard(entry) {
   card.dataset.modelId = entry.id;
   showSpecs(card.querySelector('.model-specs'), entry.metrics);
 
+  card.querySelector('.showcase-badge').hidden = !isFeatured(entry);
+  const downloadable = canDownload(entry);
+  card.querySelector('.print-only').hidden = downloadable;
   const download = card.querySelector('.catalogue-download');
-  const fileName = entry.remote
-    ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.stl'
-    : entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
-  download.download = fileName;
-  if (entry.driveId) {
-    download.href = 'https://drive.google.com/file/d/' + entry.driveId + '/view';
-    download.addEventListener('click', event => downloadDriveModel(event, entry, fileName));
-  } else if (entry.remote) {
-    download.href = cloudFile(entry.remote.stl_path, fileName);
-    download.addEventListener('click', () => logModelEvent(entry, 'download'));
-  } else if (entry.downloadUrl || entry.fileUrl) {
-    download.href = entry.downloadUrl || entry.fileUrl;
-    if (entry.downloadUrl) {
-      download.target = '_blank';
-      download.rel = 'noopener noreferrer';
+  download.hidden = !downloadable;
+  if (downloadable) {
+    const fileName = entry.remote
+      ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.stl'
+      : entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
+    download.download = fileName;
+    if (entry.driveId) {
+      download.href = 'https://drive.google.com/file/d/' + entry.driveId + '/view';
+      download.addEventListener('click', event => downloadDriveModel(event, entry, fileName));
+    } else if (entry.remote) {
+      download.href = cloudFile(entry.remote.stl_path, fileName);
+      download.addEventListener('click', () => logModelEvent(entry, 'download'));
+    } else if (entry.downloadUrl || entry.fileUrl) {
+      download.href = entry.downloadUrl || entry.fileUrl;
+      if (entry.downloadUrl) {
+        download.target = '_blank';
+        download.rel = 'noopener noreferrer';
+      }
+    } else {
+      download.href = URL.createObjectURL(entry.file);
     }
-  } else {
-    download.href = URL.createObjectURL(entry.file);
   }
-  const order = card.querySelector('.catalog-order');
-  order.href = orderURL(entry);
-  order.addEventListener('click', event => recordOrder(event, entry));
+  card.querySelector('.catalog-order').addEventListener('click', () => openPrintOrder(entry));
+  const moderation = card.querySelector('.moderate-showcase');
+  moderation.hidden = !entry.remote || !isModerator();
+  moderation.addEventListener('click', () => openShowcaseEditor(entry.remote));
   return card;
 }
 
@@ -999,9 +1057,18 @@ function renderCatalog(reset = false) {
   const search = byId('model-search').value.trim().toLocaleLowerCase('ru');
   const sort = byId('catalog-sort').value;
   const matches = [...entries.values()].filter(entry =>
+    (!byId('download-only').checked || canDownload(entry)) &&
     (activeCategory === 'Все' || categoryOf(entry) === activeCategory) &&
     (entry.title + ' ' + entry.description).toLocaleLowerCase('ru').includes(search));
   matches.sort((a,b) => {
+    if (sort === 'new') {
+      const featured = Number(isFeatured(b)) - Number(isFeatured(a));
+      if (featured) return featured;
+      if (isFeatured(a)) {
+        const rank = (storefront(a).featured_rank ?? 100) - (storefront(b).featured_rank ?? 100);
+        if (rank) return rank;
+      }
+    }
     const delta = sort === 'new' ? 0 : (b.remote?.[sort] || 0) - (a.remote?.[sort] || 0);
     return delta || (b.createdAt || 0) - (a.createdAt || 0);
   });
@@ -1011,6 +1078,7 @@ function renderCatalog(reset = false) {
       card = createCard(entry);
       cards.set(entry, card);
     }
+    card.querySelector('.moderate-showcase').hidden = !entry.remote || !isModerator();
     if (!validMetrics(entry.metrics)) measureVisible.observe(card);
     else showSpecs(card.querySelector('.model-specs'), entry.metrics);
     return card;
@@ -1036,7 +1104,7 @@ colorPicker.addEventListener('change', () => viewer?.setColor(colorPicker.value)
 byId('printer-bed').addEventListener('change', event => viewer?.setBed(event.target.checked));
 byId('model-wireframe').addEventListener('change', event => viewer?.setWireframe(event.target.checked));
 byId('viewer-share').addEventListener('click', () => shareModel(activeModel, byId('viewer-share-status')));
-byId('viewer-order').addEventListener('click', event => recordOrder(event, activeModel));
+byId('viewer-order').addEventListener('click', () => openPrintOrder(activeModel));
 
 dialog.addEventListener('close', () => {
   if (dialog.open) return;
@@ -1285,6 +1353,7 @@ function updateSession(session) {
   social?.sessionChanged(user);
   if (before !== user?.id) { moderatorSession = undefined; if (driveImportRunning) driveImportCancelled = true; }
   updateModeratorPanel();
+  renderCatalog();
   accountLink.textContent = user
     ? (user.user_metadata?.display_name || user.email || 'Личный кабинет')
     : 'Войти / Регистрация';
@@ -1605,6 +1674,7 @@ function openEditor(row) {
   editing = row;
   addForm.reset();
   modelGallery.reset(row);
+  setShowcaseFields(editorShowcase, row);
   clearEditorPreview();
   note(addStatus, '');
   setAngleReadouts();
@@ -1867,6 +1937,9 @@ addForm.addEventListener('submit', async event => {
   if (saving || addButton.disabled || (!editing && !draft?.file)) return;
   const data = new FormData(addForm);
   const fields = { title: data.get('title').trim(), description: data.get('description').trim(), category: data.get('category') };
+  const settings = readShowcaseFields(editorShowcase);
+  if (!supabase || editing?.is_featured !== undefined || settings.is_featured ||
+      settings.featured_rank !== 100 || !settings.allow_download) Object.assign(fields, settings);
   if (!fields.title) {
     note(addStatus, 'Укажите название модели.', true);
     return;
@@ -1883,12 +1956,16 @@ addForm.addEventListener('submit', async event => {
     }
   }
   saving = true;
-  const editorControls = [closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
+  const editorControls = [editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
   addButton.disabled = true;
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
     if (supabase) {
+      if ('allow_download' in fields && editing?.allow_download === undefined) {
+        const {error} = await supabase.from('models').select('allow_download').limit(0);
+        if (error) throw new Error('Для настроек витрины выполните catalog/showcase-and-orders.sql в Supabase.');
+      }
       await saveCloudModel(fields, draft, editing, user, modelGallery.draft());
       listPublicModels(true);
       if (!accountPanel.hidden) loadDashboard();
@@ -1969,9 +2046,10 @@ for (const category of CATEGORIES) {
   byId('library-category').add(new Option(category, category, category === 'Другое', category === 'Другое'));
 }
 byId('model-search').addEventListener('input', () => renderCatalog(true));
+byId('download-only').addEventListener('change', () => renderCatalog(true));
 byId('catalog-sort').addEventListener('change', () => renderCatalog(true));
 
-modelGallery = initModelGallery({getClient: () => supabase, describeModel, showSpecs, orderURL, recordOrder, openModel});
+modelGallery = initModelGallery({getClient: () => supabase, describeModel, showSpecs, openPrintOrder, openModel});
 
 for (const model of publishedModels) {
   model.cover = cachedCover(model);

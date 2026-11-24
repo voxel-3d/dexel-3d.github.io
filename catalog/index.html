@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=media-1">
+  <link rel="stylesheet" href="style.css?v=showcase-1">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=media-1"></script>
+  <script type="module" src="script.js?v=showcase-1"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -50,10 +50,11 @@
       <div class="catalog-filters" aria-label="Поиск и фильтры">
         <label>Поиск моделей<input id="model-search" type="search" placeholder="Название или описание"></label>
         <label>Сортировка<select id="catalog-sort">
-          <option value="new">Сначала новые</option>
+          <option value="new">Сначала витринные и новые</option>
           <option value="views_count">Популярные (по просмотрам)</option>
           <option value="downloads_count">Чаще скачивают</option>
         </select></label>
+        <label class="download-filter"><input id="download-only" type="checkbox"> Только доступные для скачивания</label>
         <div id="category-filters" role="group" aria-label="Категории моделей"></div>
       </div>
       <p id="catalog-empty" class="library-status" role="status" hidden>Модели не найдены. Измените запрос или категорию.</p>
@@ -66,6 +67,7 @@
         <article class="catalog-card">
           <img class="catalog-card-image" width="640" height="500" alt="" decoding="async">
           <div class="catalog-card-body">
+            <span class="showcase-badge" hidden>Витрина</span>
             <h2><a class="model-link"></a></h2>
             <p class="catalog-card-description"></p>
             <p class="catalog-card-meta"></p>
@@ -76,7 +78,9 @@
               <a class="catalog-card-button catalogue-download" download>Скачать STL</a>
               <button class="catalog-card-button catalog-details" type="button" aria-haspopup="dialog">Подробнее · Фото и GIF</button>
               <button class="catalog-share" type="button">Поделиться</button>
-              <a class="catalog-order">Заказать печать в DEXEL 3D</a>
+              <p class="print-only" hidden>Модель доступна только для заказа печати</p>
+              <button class="catalog-order" type="button">Заказать печать</button>
+              <button class="catalog-card-button moderate-showcase" type="button" hidden>Настройки витрины</button>
             </div>
           </div>
         </article>
@@ -193,6 +197,7 @@
         <div id="cloud-model-fields" hidden><label for="library-tags">Теги через запятую</label>
         <input id="library-tags" name="tags" type="text" maxlength="251" placeholder="ваза, интерьер"></div>
       </div>
+      <fieldset id="showcase-fields" class="model-media-fields"></fieldset>
       <div id="local-model-fields">
         <label for="library-download">Ссылка для скачивания (необязательно)</label>
         <input id="library-download" name="download" type="url" maxlength="2048" placeholder="https://…">
@@ -228,6 +233,36 @@
     </form>
   </dialog>
 
+  <template id="showcase-settings">
+    <legend>Витрина и скачивание</legend>
+    <label class="showcase-checkbox"><input name="is_featured" type="checkbox"> Показывать на витрине (в начале каталога)</label>
+    <label>Приоритет (1, 2, 3…) <input name="featured_rank" type="number" min="1" max="2147483647" step="1" value="100" required></label>
+    <label class="showcase-checkbox"><input name="allow_download" type="checkbox" checked> Разрешить скачивание STL-файла</label>
+  </template>
+  <dialog id="showcase-dialog" class="model-dialog add-model-dialog" aria-labelledby="showcase-title">
+    <header class="model-header"><h2 id="showcase-title"></h2><button id="showcase-close" class="model-close" type="button" aria-label="Закрыть настройки витрины">×</button></header>
+    <form id="showcase-form" class="add-model-form">
+      <fieldset id="moderator-showcase-fields" class="model-media-fields"></fieldset>
+      <p id="showcase-status" class="library-status" role="status"></p>
+      <button class="button" type="submit">Сохранить настройки</button>
+    </form>
+  </dialog>
+
+  <dialog id="print-dialog" class="model-dialog add-model-dialog" aria-labelledby="print-heading">
+    <header class="model-header"><div><h2 id="print-heading">Параметры печати</h2><p id="print-title"></p></div><button id="print-close" class="model-close" type="button" aria-label="Закрыть параметры печати">×</button></header>
+    <form id="print-form" class="add-model-form">
+      <div class="print-options">
+        <label>Материал<select name="material"><option>PETG</option><option>PLA</option><option>ABS</option></select></label>
+        <label>Цвет пластика<span class="print-color"><span id="print-swatch" aria-hidden="true"></span><select name="color"></select></span></label>
+        <label>Прочность и заполнение<select name="strength"><option value="15">Декор · 15%</option><option value="25" selected>Стандарт · 25%</option><option value="50">Усиленная · 50%</option><option value="100">Монолит · 100%</option></select></label>
+        <label>Количество, шт.<input name="quantity" type="number" min="1" max="10000" step="1" value="1" required></label>
+      </div>
+      <p id="print-estimate" class="model-specs" role="status"></p>
+      <p class="estimate-note">Оценка по заполнению, без учёта стенок, поддержек и доставки. Точную цену подтвердит мастерская.</p>
+      <button class="button" type="submit">Заказать печать с этими параметрами</button>
+    </form>
+  </dialog>
+
   <dialog id="details-dialog" class="model-dialog details-dialog" aria-labelledby="details-title">
     <header class="model-header"><h2 id="details-title"></h2><button id="details-close" class="model-close" type="button" aria-label="Закрыть подробности">×</button></header>
     <div class="details-body">
@@ -235,7 +270,7 @@
       <div class="details-navigation"><button id="details-prev" type="button" aria-label="Предыдущее изображение">‹</button><span id="details-count" role="status"></span><button id="details-next" type="button" aria-label="Следующее изображение">›</button></div>
       <div id="details-thumbs" class="details-thumbs" role="group" aria-label="Изображения модели"></div>
       <p id="details-meta"></p><p id="details-description"></p><div id="details-specs" class="model-specs"></div>
-      <div class="account-actions"><button id="details-3d" class="catalog-card-button" type="button">Смотреть в 3D</button><a id="details-order" class="catalog-card-button library-add">Заказать печать</a></div>
+      <div class="account-actions"><button id="details-3d" class="catalog-card-button" type="button">Смотреть в 3D</button><button id="details-order" class="catalog-card-button library-add" type="button">Заказать печать</button></div>
     </div>
   </dialog>
 
@@ -304,7 +339,8 @@
       <div id="viewer-specs" class="model-specs"></div>
       <p class="estimate-note">Оценка для замкнутой модели при заполнении 25%, без учёта стенок и поддержек.</p>
       <div class="viewer-links">
-        <a id="viewer-order" class="catalog-order">Заказать печать в DEXEL 3D</a>
+        <p id="viewer-print-only" class="print-only" hidden>Модель доступна только для заказа печати</p>
+        <button id="viewer-order" class="catalog-order" type="button">Заказать печать</button>
         <button id="viewer-favorite" class="favorite-button" type="button" aria-pressed="false">♡ Избранное <span>0</span></button>
         <button id="viewer-share" type="button" class="catalog-share">Поделиться</button>
       </div>
