@@ -2,6 +2,8 @@ const byId = id => document.getElementById(id);
 const sourceInput = byId('stl-file');
 const drop = byId('stl-drop');
 const stage = byId('stl-stage');
+const viewerDialog = byId('stl-viewer-dialog');
+viewerDialog.addEventListener('voxel:dialog-open', () => requestAnimationFrame(() => view?.resize()));
 const placeholder = byId('stl-placeholder');
 const status = byId('stl-status');
 const manual = byId('stl-manual');
@@ -139,7 +141,7 @@ function openScene({ THREE, OrbitControls }) {
   };
   controls.addEventListener('change', render);
   new ResizeObserver(resize).observe(stage);
-  view = { scene, camera, controls, render, mesh: null };
+  view = { scene, camera, controls, render, resize, mesh: null };
   resize();
   return view;
 }
@@ -434,6 +436,7 @@ async function exportModel(forOrder) {
     }
     manual.hidden = true;
     status.textContent = 'Подготовленный STL добавлен в заявку.';
+    if (viewerDialog.open) viewerDialog.close();
     byId('request').scrollIntoView();
     byId('contact').focus({ preventScroll: true });
   } catch {

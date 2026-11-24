@@ -611,3 +611,58 @@ dialog.payment-dialog::backdrop{background:rgba(0,0,0,.78);backdrop-filter:blur(
 @media (max-width: 700px) {
   .header nav .nav-catalog-link { padding: 4px 6px; }
 }
+
+/* Main page sales flow and tools */
+.portfolio-more { display:flex; justify-content:center; margin-top:22px; }
+.portfolio-more .button[hidden] { display:none; }
+#works.section, #reviews.section, #prices.section, #home-catalog.section {
+  padding-block:clamp(36px, 5vw, 76px);
+}
+#reviews .reviews-grid { gap:12px; margin-top:20px; }
+#reviews .review-card { gap:9px; padding:clamp(14px, 1.7vw, 20px); }
+#reviews .review-card blockquote { line-height:1.5; }
+#prices .price-card { min-height:160px; padding:18px; }
+#prices .price-card h3 { margin-top:12px; }
+#prices .price-card p { margin-bottom:10px; }
+.price-tool-links { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+.price-tool-links .button { min-height:42px; padding:9px 14px; text-align:center; }
+
+.workshop-details { margin-block:12px; border:1px solid var(--line); background:var(--bg); }
+.workshop-details > summary { padding:14px 18px; cursor:pointer; font-weight:700; }
+.workshop-details > summary::marker { color:var(--accent); }
+.workshop-details > section.section { padding-block:24px; }
+
+html:has(dialog.tool-dialog[open]),
+body:has(dialog.tool-dialog[open]) { overflow:hidden; }
+dialog.tool-dialog { width:calc(100% - 24px); max-height:calc(100dvh - 24px); border-color:rgb(212 175 55 / 42%); border-radius:12px; }
+dialog.tool-dialog-wide { max-width:1120px; }
+.tool-dialog .legal-dialog-head { z-index:5; }
+.tool-dialog .tool-dialog-content { padding:clamp(14px, 3vw, 30px); }
+.tool-dialog .tool-heading { margin-bottom:16px; }
+.tool-dialog .tool-heading p { max-width:68ch; }
+.tool-dialog #cdek-delivery.cdek-panel {
+  grid-template-columns:minmax(0, 1fr);
+  margin:0;
+  padding:0;
+  border:0;
+  gap:14px;
+}
+.tool-dialog .cdek-intro h2 { margin-bottom:8px; }
+.tool-dialog .cdek-package-fields { grid-template-columns:repeat(2,minmax(0,1fr)); }
+.tool-dialog .stl-stage { height:clamp(260px, 46vh, 500px); min-height:0; }
+
+@media (max-width:700px) {
+  #reviews .reviews-grid {
+    grid-template-columns:none;
+    grid-auto-flow:column;
+    grid-auto-columns:minmax(0, 86%);
+    overflow-x:auto;
+    scroll-snap-type:x mandatory;
+    padding-bottom:8px;
+  }
+  #reviews .review-card { scroll-snap-align:start; }
+  #prices .price-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); }
+  #prices .price-card { min-height:0; padding:12px; }
+  .price-tool-links .button { flex:1 1 100%; }
+  .tool-dialog .legal-dialog-head { padding:12px 14px; }
+}

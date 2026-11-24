@@ -25,74 +25,48 @@ let calculatorApplied=false;
 let calculatedItemsTotal=null;
 let paymentMode=50;
 
-const filters=document.querySelectorAll('[data-filter]');
+const filters=document.querySelectorAll('#works [data-filter]');
 const gallery=document.getElementById('works-gallery');
-const workSlots=[...gallery.querySelectorAll('.work-slot')];
 const workItems=[...gallery.querySelectorAll('.work-slide')];
-const works=workItems.map(slide=>{
-  const position=slide.dataset.position||'center center';
-  const image=slide.querySelector('.work-main-image');
-  if(image)image.style.objectPosition=position;
-  return {slide,position};
-});
+const featuredWorks=new Set(workItems.filter(item=>item.classList.contains('is-active')));
+const showMoreWorks=document.getElementById('works-more');
 let activeFilter='all';
-const slotTimers=new WeakMap();
+let portfolioExpanded=false;
 
-function activateSlide(slot,index){
-  const slides=[...slot.querySelectorAll('.work-slide')];
-  const next=index%slides.length;
-  const activeSlide=slides[next];
-  const work=works.find(entry=>entry.slide===activeSlide);
-  const image=activeSlide?.querySelector('.work-main-image');
-  if(image)image.style.objectPosition=work?.position||'center center';
-  slot.dataset.activeIndex=String(next);
-  slides.forEach((slide,i)=>{
-    const active=i===next;
-    slide.classList.toggle('is-active',active);
-    slide.setAttribute('aria-hidden',String(!active));
-    slide.inert=!active;
+for (const item of workItems) {
+  const image=item.querySelector('.work-main-image');
+  if (image) image.style.objectPosition=item.dataset.position || 'center center';
+}
+
+function renderPortfolio() {
+  for (const item of workItems) {
+    const visible=activeFilter === 'all'
+      ? portfolioExpanded || featuredWorks.has(item)
+      : item.dataset.category === activeFilter;
+    item.hidden=!visible;
+    item.inert=!visible;
+    item.setAttribute('aria-hidden',String(!visible));
+  }
+  showMoreWorks.hidden=activeFilter !== 'all' || workItems.length <= featuredWorks.size;
+  showMoreWorks.setAttribute('aria-expanded',String(portfolioExpanded));
+  showMoreWorks.textContent=portfolioExpanded ? 'Показать меньше' : 'Показать ещё (все '+workItems.length+' работ)';
+}
+
+for (const button of filters) {
+  button.addEventListener('click',()=>{
+    activeFilter=button.dataset.filter;
+    for (const filter of filters) {
+      filter.classList.toggle('active',filter === button);
+      filter.setAttribute('aria-pressed',String(filter === button));
+    }
+    renderPortfolio();
   });
 }
-function clearSlotTimer(slot){
-  const timer=slotTimers.get(slot);
-  if(timer)clearTimeout(timer);
-  slotTimers.delete(slot);
-}
-function scheduleSlot(slot,delay=4600){
-  clearSlotTimer(slot);
-  if(activeFilter!=='all')return;
-  slotTimers.set(slot,setTimeout(()=>{
-    if(activeFilter==='all'&&!slot.matches(':hover')&&!slot.matches(':focus-within')){
-      activateSlide(slot,Number(slot.dataset.activeIndex||0)+1);
-    }
-    scheduleSlot(slot,4600);
-  },delay));
-}
-function showPortfolioFilter(filter){
-  activeFilter=filter;
-  gallery.classList.toggle('is-filtered',filter!=='all');
-  workItems.forEach(item=>{const matches=filter==='all'||item.dataset.category===filter;item.hidden=!matches;item.inert=!matches;item.setAttribute('aria-hidden',String(!matches))});
-  workSlots.forEach((slot,i)=>{
-    clearSlotTimer(slot);
-    if(filter==='all'){
-      activateSlide(slot,Number(slot.dataset.activeIndex||0));
-      scheduleSlot(slot,4600+i*520);
-    }
-  });
-}
-filters.forEach(button=>button.addEventListener('click',()=>{
-  filters.forEach(b=>{b.classList.toggle('active',b===button);b.setAttribute('aria-pressed',String(b===button))});
-  showPortfolioFilter(button.dataset.filter);
-}));
-workSlots.forEach((slot,i)=>{
-  slot.addEventListener('mouseenter',()=>clearSlotTimer(slot));
-  slot.addEventListener('mouseleave',()=>{if(activeFilter==='all')scheduleSlot(slot,4600)});
-  slot.addEventListener('focusin',()=>clearSlotTimer(slot));
-  slot.addEventListener('focusout',()=>{if(activeFilter==='all')scheduleSlot(slot,4600)});
-  const active=slot.querySelector('.work-slide.is-active')||slot.querySelector('.work-slide');
-  activateSlide(slot,[...slot.querySelectorAll('.work-slide')].indexOf(active));
-  scheduleSlot(slot,4600+i*520);
+showMoreWorks.addEventListener('click',()=>{
+  portfolioExpanded=!portfolioExpanded;
+  renderPortfolio();
 });
+renderPortfolio();
 const dialog=document.getElementById('lightbox');
 document.querySelectorAll('[data-image]').forEach(button=>button.addEventListener('click',()=>{const img=document.getElementById('large-image');img.src=button.dataset.image;img.alt=button.querySelector('.work-main-image').alt;document.getElementById('large-caption').textContent=button.dataset.title+(button.dataset.description?' — '+button.dataset.description:'');dialog.showModal()}));
 dialog.querySelector('.close').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
@@ -345,14 +319,55 @@ orderContact.addEventListener('input',()=>orderContact.setCustomValidity(''));
 document.getElementById('details').addEventListener('input',e=>e.target.setCustomValidity(''));
 document.getElementById('copy-brief').addEventListener('click',async()=>{const area=document.getElementById('brief-text');try{await navigator.clipboard.writeText(area.value);document.getElementById('copy-status').textContent='Скопировано. Отправьте текст мастеру удобным способом.'}catch{area.focus();area.select();document.getElementById('copy-status').textContent='Выделили текст. Скопируйте его вручную.'}});
 
+const toolHashes=new Map([
+  ['#viewer','stl-viewer-dialog'], ['#stl','stl-viewer-dialog'], ['#stl-viewer','stl-viewer-dialog'],
+  ['#cdek-delivery','cdek-dialog'], ['#pricing-details','pricing-dialog']
+]);
+let hashDialog;
+function openLegalDialog(dialog) {
+  if (!dialog || dialog.open) return;
+  dialog.showModal();
+  dialog.dispatchEvent(new Event('voxel:dialog-open'));
+}
+function followHomeHash() {
+  const hash=window.location.hash;
+  const dialogId=toolHashes.get(hash);
+  const target=dialogId ? document.getElementById(dialogId) : null;
+  if (hashDialog && hashDialog !== target && hashDialog.open) hashDialog.close();
+  hashDialog=target;
+  if (target) {
+    openLegalDialog(target);
+  } else if (hash === '#process' || hash === '#materials') {
+    document.getElementById(hash.slice(1)).open=true;
+  }
+}
+window.addEventListener('hashchange',followHomeHash);
+window.addEventListener('DOMContentLoaded',followHomeHash,{once:true});
 document.querySelectorAll('[data-legal-dialog]').forEach(link=>link.addEventListener('click',event=>{
+  if (event.button > 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
   event.preventDefault();
-  const dialog=document.getElementById(link.dataset.legalDialog);
-  if(dialog&&!dialog.open)dialog.showModal();
+  openLegalDialog(document.getElementById(link.dataset.legalDialog));
 }));
 document.querySelectorAll('.legal-dialog').forEach(dialog=>{
   dialog.querySelector('.legal-close').addEventListener('click',()=>dialog.close());
-  dialog.addEventListener('click',event=>{if(event.target===dialog)dialog.close()});
+  dialog.addEventListener('click',event=>{
+    if (event.target !== dialog) return;
+    if (!dialog.classList.contains('tool-dialog')) {
+      dialog.close();
+      return;
+    }
+    const rect=dialog.getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right ||
+        event.clientY < rect.top || event.clientY > rect.bottom) dialog.close();
+  });
+  if (dialog.classList.contains('tool-dialog')) {
+    dialog.addEventListener('close',()=>{
+      if (!dialog.open && toolHashes.get(window.location.hash) === dialog.id) {
+        history.replaceState(history.state,'',window.location.pathname+window.location.search);
+      }
+    });
+    dialog.querySelectorAll('a[href="#request"]').forEach(link=>link.addEventListener('click',()=>dialog.close()));
+  }
 });
 
 const calcProduct=document.getElementById('calc-product');
@@ -485,15 +500,17 @@ function showCdekError(error,action,status=cdekStatus){
   if(status)status.textContent=action+': '+error.message;
 }
 
-const cdekCheckingStatus=cdekStatus.textContent;
-cdekRequest('status').then(data=>{
-  if(cdekStatus.textContent!==cdekCheckingStatus)return;
-  cdekStatus.textContent=(data.cdekConfigured??data.ready)
-    ? 'Введите город получения и укажите вес упакованного заказа.'
-    : 'Расчёт доставки пока недоступен. Оставьте заявку — уточним условия.';
-}).catch(error=>{
-  showCdekError(error,'Не удалось проверить подключение',cdekStatus.textContent===cdekCheckingStatus?cdekStatus:null);
-});
+document.getElementById('cdek-dialog').addEventListener('voxel:dialog-open',()=>{
+  const cdekCheckingStatus=cdekStatus.textContent;
+  cdekRequest('status').then(data=>{
+    if(cdekStatus.textContent!==cdekCheckingStatus)return;
+    cdekStatus.textContent=(data.cdekConfigured??data.ready)
+      ? 'Введите город получения и укажите вес упакованного заказа.'
+      : 'Расчёт доставки пока недоступен. Оставьте заявку — уточним условия.';
+  }).catch(error=>{
+    showCdekError(error,'Не удалось проверить подключение',cdekStatus.textContent===cdekCheckingStatus?cdekStatus:null);
+  });
+},{once:true});
 
 function hideCdekSuggestions(){cdekSuggestions.hidden=true;cdekCity.setAttribute('aria-expanded','false')}
 function showCdekSuggestions(){cdekSuggestions.hidden=false;cdekCity.setAttribute('aria-expanded','true')}
