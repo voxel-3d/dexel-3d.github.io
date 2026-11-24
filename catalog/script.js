@@ -1014,6 +1014,8 @@ function showAttribution(entry, container) {
 function showModelMeta(entry, meta, tags, attribution) {
   showAttribution(entry, attribution);
   meta.textContent = describeModel(entry);
+  const license = (entry.remote ?? entry).license_label;
+  if (license) meta.textContent += ' · Лицензия / источник: ' + license;
   const values = entry.remote?.tags || [];
   tags.hidden = !values.length;
   tags.textContent = values.length ? 'Теги: ' + values.join(', ') : '';
@@ -1251,7 +1253,7 @@ async function refreshBuiltinModels(version) {
       entry.cover = supabase.storage.from('model-media').getPublicUrl(row.studio_cover_path).data.publicUrl;
       entry.coverTask = undefined;
     }
-    for (const key of ['title', 'description', 'category', 'is_featured', 'featured_rank', 'allow_download', 'media_paths', 'original_author', 'source_url']) {
+    for (const key of ['title', 'description', 'category', 'is_featured', 'featured_rank', 'allow_download', 'media_paths', 'original_author', 'source_url', 'license_label']) {
       if (row?.[key] != null) entry[key] = row[key];
     }
     entries.set(entry.id, entry);
@@ -1904,6 +1906,7 @@ function openEditor(row) {
     byId('library-description').value = row.description;
     byId('library-original-author').value = row.original_author ?? '';
     byId('library-source').value = row.source_url ?? '';
+    byId('model-license').value = row.license_label ?? '';
     byId('library-category').value = categoryOf(row);
     showEditorMetrics(normalizeStoredMetrics(row.geometry_metrics));
     byId('library-tags').value = row.tags.join(', ');
@@ -2058,6 +2061,7 @@ async function saveBuiltinModel(entry, fields, settings, selection) {
     media_paths: media?.paths ?? previous?.media_paths ?? []
   };
   if (fields.geometry_metrics) payload.geometry_metrics = fields.geometry_metrics;
+  if ('license_label' in fields) payload.license_label = fields.license_label;
   if ('original_author' in fields) {
     payload.original_author = fields.original_author;
     payload.source_url = fields.source_url;
@@ -2240,6 +2244,8 @@ addForm.addEventListener('submit', async event => {
   if (saving || addButton.disabled || (!editing && !draft?.file)) return;
   const data = new FormData(addForm);
   const fields = { title: data.get('title').trim(), description: data.get('description').trim(), category: data.get('category') };
+  const license = data.get('license_label') || '';
+  if (license || editing?.license_label != null) fields.license_label = license || null;
   const author = data.get('original_author').trim();
   const source = data.get('source_url').trim();
   const safeSource = attributionURL(source);
@@ -2292,6 +2298,11 @@ addForm.addEventListener('submit', async event => {
       if ('views_count' in fields || 'downloads_count' in fields) {
         const { error } = await supabase.from('models').select('real_views_count,real_downloads_count').limit(0);
         if (error) throw new Error('Для настройки публичных счётчиков выполните catalog/live-activity.sql в Supabase.');
+      }
+      if ('license_label' in fields) {
+        const table = editing?.builtin ? 'catalog_builtin_models' : 'models';
+        const {error} = await supabase.from(table).select('license_label').limit(0);
+        if (error) throw new Error('Для сохранения лицензии выполните catalog/model-license.sql в Supabase.');
       }
       if ('original_author' in fields) {
         const table = editing?.builtin ? 'catalog_builtin_models' : 'models';

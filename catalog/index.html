@@ -21,6 +21,8 @@
   <script type="module" src="script.js?v=large-models-1"></script>
 <link rel="stylesheet" href="../site-header.css?v=1">
 <script src="../site-header.js?v=1" defer></script>
+<link rel="stylesheet" href="../legal.css?v=1">
+<script src="../legal.js?v=1" defer></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -142,7 +144,7 @@
       <section id="drive-import-panel" class="social-block" hidden aria-labelledby="drive-import-title">
         <h2 id="drive-import-title">Импортировать с Google Диска</h2>
         <p>Инструмент модератора. Новые STL и 3MF из папки мастерской появятся в общем каталоге с автоматическими обложками. Уже добавленные файлы будут пропущены.</p>
-        <form id="drive-import-form">
+        <form id="drive-import-form"><div class="dexel-consents"><label><input type="checkbox" id="drive-import-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
           <label for="drive-import-metadata">Названия и описания — JSON (необязательно)</label>
           <textarea id="drive-import-metadata" rows="5" maxlength="1000000" aria-describedby="drive-import-help" placeholder='[{"fileName":"vase.stl","title":"Ваза","description":"Ваза для сухоцветов","category":"Для дома и быта"}]'></textarea>
           <p id="drive-import-help">Массив объектов с полями fileName, title, description, category. Имя файла должно совпадать полностью. Без JSON название берётся из имени файла, категория — «Другое».</p>
@@ -168,14 +170,14 @@
   <footer class="wrap catalog-footer">
     <a href="../">Мастерская DEXEL 3D</a>
     <a href="../#request">Обсудить печать модели <span aria-hidden="true">↗</span></a>
-  </footer>
+  <section class="dexel-legal-footer"><p>Самозанятый (НПД) Крук Игорь Максимович · ИНН 232704908693</p><nav aria-label="Юридическая информация"><button type="button" data-legal-dialog="offer-dialog">Публичная оферта</button><button type="button" data-legal-dialog="privacy-dialog">Политика конфиденциальности</button><button type="button" data-legal-dialog="rights-dialog">Правообладателям и правила каталога</button><button type="button" data-cookie-settings>Настройки cookie</button></nav></section></footer>
 
   <dialog id="auth-dialog" class="model-dialog add-model-dialog" aria-labelledby="auth-title">
     <header class="model-header">
       <div><h2 id="auth-title">Войти</h2></div>
       <form method="dialog"><button class="model-close" type="submit" aria-label="Закрыть вход">×</button></form>
     </header>
-    <form id="auth-form" class="add-model-form">
+    <form id="auth-form" class="add-model-form"><div class="dexel-consents"><label><input type="checkbox" id="auth-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
       <label for="auth-email">E-mail</label>
       <input id="auth-email" name="email" type="email" maxlength="254" autocomplete="email" required>
       <label for="auth-password">Пароль</label>
@@ -211,7 +213,7 @@
       </div>
       <button class="model-close" id="close-add-model" type="button" aria-label="Закрыть добавление модели">×</button>
     </header>
-    <form id="add-model-form" class="add-model-form">
+    <form id="add-model-form" class="add-model-form"><div class="dexel-consents"><label><input type="checkbox" id="add-model-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
       <div id="editor-file-fields"><label for="library-file">Файл STL или 3MF, до 50 МБ</label>
       <input id="library-file" name="file" type="file" accept=".stl,.3mf,model/stl,model/3mf,application/vnd.ms-package.3dmanufacturing-3dmodel+xml" required autofocus></div>
       <label for="library-title">Название</label>
@@ -231,7 +233,7 @@
         <div id="cloud-model-fields" hidden><label for="library-tags">Теги через запятую</label>
         <input id="library-tags" name="tags" type="text" maxlength="251" placeholder="ваза, интерьер"></div>
       </div>
-      <fieldset id="showcase-fields" class="model-media-fields"></fieldset>
+      <label for="model-license">Лицензия / источник (необязательно)</label><select id="model-license" name="license_label"><option value="">Не указана</option><option>Авторская модель DEXEL 3D</option><option>Свободная лицензия (CC0 / CC BY)</option><option>Личное использование / по запросу</option></select><p class="dexel-file-rights">Загружая файл, вы подтверждаете наличие прав на его использование и печать.</p><fieldset id="showcase-fields" class="model-media-fields"></fieldset>
       <fieldset id="public-count-fields" class="model-media-fields" hidden disabled>
         <legend>Публичные счётчики</legend>
         <div class="library-model-fields">
@@ -299,7 +301,7 @@
   </template>
   <dialog id="print-dialog" class="model-dialog add-model-dialog" aria-labelledby="print-heading">
     <header class="model-header"><div><h2 id="print-heading">Параметры печати</h2><p id="print-title"></p></div><button id="print-close" class="model-close" type="button" aria-label="Закрыть параметры печати">×</button></header>
-    <form id="print-form" class="add-model-form">
+    <form id="print-form" class="add-model-form"><div class="dexel-consents"><label><input type="checkbox" id="print-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
       <div class="print-options">
         <label>Материал<select name="material"><option>PETG</option><option>PLA</option><option>ABS</option></select></label>
 
@@ -326,7 +328,7 @@
 
   <dialog id="bulk-dialog" class="model-dialog add-model-dialog" aria-labelledby="bulk-title">
     <header class="model-header"><h2 id="bulk-title">Массовая загрузка</h2><button id="bulk-close" class="model-close" type="button" aria-label="Закрыть">×</button></header>
-    <form id="bulk-form" class="add-model-form">
+    <form id="bulk-form" class="add-model-form"><p class="dexel-file-rights">Загружая файл, вы подтверждаете наличие прав на его использование и печать.</p><div class="dexel-consents"><label><input type="checkbox" id="bulk-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
       <fieldset id="bulk-palette" class="model-palette"><legend>Цвет моделей в этой партии</legend></fieldset>
       <img id="bulk-cover-preview" class="library-cover" width="640" height="500" alt="Предпросмотр первой модели партии" hidden>
       <label for="bulk-files">STL и 3MF, до 50 файлов по 50 МБ</label><input id="bulk-files" type="file" accept=".stl,.3mf,model/stl,model/3mf,application/vnd.ms-package.3dmanufacturing-3dmodel+xml" multiple required>
@@ -338,7 +340,7 @@
   </dialog>
   <dialog id="make-dialog" class="model-dialog add-model-dialog" aria-labelledby="make-title">
     <header class="model-header"><h2 id="make-title">Фото отпечатка</h2><form method="dialog"><button class="model-close" aria-label="Закрыть">×</button></form></header>
-    <form id="make-form" class="add-model-form">
+    <form id="make-form" class="add-model-form"><div class="dexel-consents"><label><input type="checkbox" id="make-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
       <label for="make-photo">Фото JPG, PNG или WebP до 10 МБ</label><input id="make-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" required>
       <label for="make-material">Пластик</label><select id="make-material" required><option>PLA</option><option>PETG</option><option>ABS</option></select>
       <label for="make-comment">Комментарий</label><textarea id="make-comment" maxlength="300" rows="3"></textarea>
@@ -347,7 +349,7 @@
   </dialog>
   <dialog id="request-dialog" class="model-dialog add-model-dialog" aria-labelledby="request-title">
     <header class="model-header"><h2 id="request-title">Предложить модель</h2><form method="dialog"><button class="model-close" aria-label="Закрыть">×</button></form></header>
-    <form id="request-form" class="add-model-form">
+    <form id="request-form" class="add-model-form"><div class="dexel-consents"><label><input type="checkbox" id="request-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
       <label for="idea-title">Название</label><input id="idea-title" maxlength="100" required>
       <label for="idea-description">Описание</label><textarea id="idea-description" maxlength="1000" rows="4" required></textarea>
       <label for="idea-photo">Фото-референс, необязательно</label><input id="idea-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp">
@@ -407,5 +409,6 @@
       </section>
     </div>
   </dialog>
+<div id="legal-documents"></div>
 </body>
 </html>
