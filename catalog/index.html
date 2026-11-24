@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=header-1">
+  <link rel="stylesheet" href="style.css?v=attribution-1">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=shared-data-1"></script>
+  <script type="module" src="script.js?v=attribution-1"></script>
 <link rel="stylesheet" href="../site-header.css?v=1">
 <script src="../site-header.js?v=1" defer></script>
 </head>
@@ -218,6 +218,13 @@
       <input id="library-title" name="title" type="text" maxlength="100" required>
       <label for="library-description">Описание (необязательно)</label>
       <textarea id="library-description" name="description" rows="3" maxlength="500"></textarea>
+      <fieldset id="model-attribution-fields" class="model-media-fields">
+        <legend>Авторство</legend>
+        <label for="library-original-author">Автор 3D-модели (если модель не ваша)</label>
+        <input id="library-original-author" name="original_author" type="text" maxlength="120" placeholder="Оставьте пустым для моделей DEXEL 3D">
+        <label for="library-source">Ссылка на оригинал / источник</label>
+        <input id="library-source" name="source_url" type="url" maxlength="2048" placeholder="https://…">
+      </fieldset>
       <div class="library-model-fields">
         <div><label for="library-category">Категория</label>
         <select id="library-category" name="category"></select></div>
@@ -290,7 +297,7 @@
       <div class="details-stage"><img id="details-image" alt=""></div>
       <div class="details-navigation"><button id="details-prev" type="button" aria-label="Предыдущее изображение">‹</button><span id="details-count" role="status"></span><button id="details-next" type="button" aria-label="Следующее изображение">›</button></div>
       <div id="details-thumbs" class="details-thumbs" role="group" aria-label="Изображения модели"></div>
-      <p id="details-meta"></p><p id="details-tags" hidden></p><p id="details-description"></p><div id="details-specs" class="model-specs"></div>
+      <p id="details-meta"></p><p id="details-attribution" class="model-attribution"></p><p id="details-tags" hidden></p><p id="details-description"></p><div id="details-specs" class="model-specs"></div>
       <div class="account-actions"><button id="details-3d" class="catalog-card-button" type="button">Смотреть в 3D</button><button id="details-order" class="catalog-card-button library-add" type="button">Заказать печать</button></div>
     </div>
   </dialog>
@@ -357,6 +364,7 @@
         <label><input id="model-wireframe" type="checkbox" disabled> Сетка полигонов (Wireframe)</label>
       </div>
       <p id="viewer-model-meta"></p>
+      <p id="viewer-attribution" class="model-attribution"></p>
       <p id="viewer-model-tags" hidden></p>
       <div id="viewer-specs" class="model-specs"></div>
       <p class="estimate-note">Оценка для замкнутой модели при заполнении 25%, без учёта стенок и поддержек.</p>

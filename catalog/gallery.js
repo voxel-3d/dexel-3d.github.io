@@ -92,7 +92,7 @@ export function initModelGallery(api) {
     revoke(detailURLs);active=entry;opener=document.activeElement;
     $('details-title').textContent=entry.title;
     $('details-description').textContent=entry.description||'Описание не добавлено.';
-    api.showModelMeta(entry, $('details-meta'), $('details-tags'));
+    api.showModelMeta(entry, $('details-meta'), $('details-tags'), $('details-attribution'));
     api.showSpecs($('details-specs'),entry.metrics);
     slides=[];
     const cover=entry.cover||entry.placeholder;if(cover)slides.push(cover);

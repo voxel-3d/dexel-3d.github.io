@@ -1,7 +1,7 @@
 import { BUCKET, loadSupabase, publishedModels, SUPABASE_URL, SUPABASE_ANON_KEY } from './catalog-data.js?v=1';
 import { DEFAULT_COLOR, mountPalette, normalizeColor } from './palette.js?v=1';
 import { initPrintOrder } from './print-order.js?v=2';
-import { initModelGallery } from './gallery.js?v=palette-1';
+import { initModelGallery } from './gallery.js?v=attribution-1';
 let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
@@ -788,7 +788,7 @@ async function openModel(entry, push = true) {
   title.textContent = entry.title;
   description.textContent = entry.description;
   viewerPalette.set(entry.color);
-  showModelMeta(entry, byId('viewer-model-meta'), byId('viewer-model-tags'));
+  showModelMeta(entry, byId('viewer-model-meta'), byId('viewer-model-tags'), byId('viewer-attribution'));
   status.textContent = 'Загружаем 3D-модель…';
   enableActions(false);
   if (!dialog.open) dialog.showModal();
@@ -917,7 +917,37 @@ function showCardMeta(card, entry) {
   meta.title = meta.textContent;
 }
 
-function showModelMeta(entry, meta, tags) {
+function attributionURL(value) {
+  if (!value || value.length > 2048 || !/^https?:\/\/[^\s]+$/i.test(value)) return null;
+  try {
+    const url = new URL(value);
+    return url.hostname && !url.username && !url.password ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+function showAttribution(entry, container) {
+  const model = entry.remote ?? entry;
+  const author = model.original_author?.trim();
+  const source = attributionURL(model.source_url);
+  container.textContent = author ? 'Автор модели: ' : 'Модель мастерской DEXEL 3D';
+  if (!source) {
+    if (author) container.append(author);
+    return;
+  }
+
+  const link = document.createElement('a');
+  link.href = source;
+  link.target = '_blank';
+  link.rel = 'noopener noreferrer';
+  link.textContent = author || 'Источник';
+  if (!author) container.append(' · ');
+  container.append(link);
+}
+
+function showModelMeta(entry, meta, tags, attribution) {
+  showAttribution(entry, attribution);
   meta.textContent = describeModel(entry);
   const values = entry.remote?.tags || [];
   tags.hidden = !values.length;
@@ -1154,7 +1184,7 @@ async function refreshBuiltinModels(version) {
       entry.cover = supabase.storage.from('model-media').getPublicUrl(row.studio_cover_path).data.publicUrl;
       entry.coverTask = undefined;
     }
-    for (const key of ['title', 'description', 'category', 'is_featured', 'featured_rank', 'allow_download', 'media_paths']) {
+    for (const key of ['title', 'description', 'category', 'is_featured', 'featured_rank', 'allow_download', 'media_paths', 'original_author', 'source_url']) {
       if (row?.[key] != null) entry[key] = row[key];
     }
     entries.set(entry.id, entry);
@@ -1240,7 +1270,7 @@ function logModelEvent(entry, kind) {
       Object.assign(active.remote, counters);
       if (activeModel?.id === modelId) {
         Object.assign(activeModel.remote ?? {}, counters);
-        showModelMeta(activeModel, byId('viewer-model-meta'), byId('viewer-model-tags'));
+        showModelMeta(activeModel, byId('viewer-model-meta'), byId('viewer-model-tags'), byId('viewer-attribution'));
       }
     }
     if (byId('catalog-sort').value !== 'new') renderCatalog();
@@ -1701,6 +1731,8 @@ function openEditor(row) {
   if (row) {
     byId('library-title').value = row.title;
     byId('library-description').value = row.description;
+    byId('library-original-author').value = row.original_author ?? '';
+    byId('library-source').value = row.source_url ?? '';
     byId('library-category').value = categoryOf(row);
     showSpecs(byId('upload-specs'), row.geometry_metrics);
     byId('library-tags').value = row.tags.join(', ');
@@ -1854,6 +1886,10 @@ async function saveBuiltinModel(entry, fields, settings, selection) {
     ...settings, owner_id: owner, media_namespace: namespace, revision,
     media_paths: media?.paths ?? previous?.media_paths ?? []
   };
+  if ('original_author' in fields) {
+    payload.original_author = fields.original_author;
+    payload.source_url = fields.source_url;
+  }
   const coverPath = selection ? owner + '/' + namespace + '/' + crypto.randomUUID() + '.webp' : undefined;
   if (coverPath) {
     try {
@@ -2029,6 +2065,17 @@ addForm.addEventListener('submit', async event => {
   if (saving || addButton.disabled || (!editing && !draft?.file)) return;
   const data = new FormData(addForm);
   const fields = { title: data.get('title').trim(), description: data.get('description').trim(), category: data.get('category') };
+  const author = data.get('original_author').trim();
+  const source = data.get('source_url').trim();
+  const safeSource = attributionURL(source);
+  if (source && (!safeSource || safeSource.length > 2048)) {
+    note(addStatus, 'Введите ссылку на источник с http:// или https://.', true);
+    return;
+  }
+  if (author || source || editing?.original_author != null || editing?.source_url != null) {
+    fields.original_author = author || null;
+    fields.source_url = safeSource;
+  }
   const settings = readShowcaseFields(editorShowcase);
   if (!supabase || editing?.is_featured !== undefined || settings.is_featured ||
       settings.featured_rank !== 100 || !settings.allow_download) Object.assign(fields, settings);
@@ -2048,12 +2095,20 @@ addForm.addEventListener('submit', async event => {
     }
   }
   saving = true;
-  const editorControls = [editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
+  const editorControls = [byId('model-attribution-fields'), editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
   addButton.disabled = true;
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
     if (supabase) {
+      if ('original_author' in fields) {
+        const table = editing?.builtin ? 'catalog_builtin_models' : 'models';
+        const {error} = await supabase.from(table).select('original_author,source_url').limit(0);
+        if (error?.code === '42703' || error?.code === 'PGRST204' || error?.code === 'PGRST205') {
+          throw new Error('Для сохранения авторства выполните catalog/model-attribution.sql в Supabase.');
+        }
+        if (error) throw new Error('Не удалось проверить поля авторства. Повторите попытку.');
+      }
       if (editing?.builtin) {
         await saveBuiltinModel(editing, fields, settings, draft);
         await listPublicModels(true);
