@@ -93,7 +93,7 @@ export function initModelGallery(api) {
     $('details-title').textContent=entry.title;
     $('details-description').textContent=entry.description||'Описание не добавлено.';
     api.showModelMeta(entry, $('details-meta'), $('details-tags'), $('details-attribution'));
-    api.showSpecs($('details-specs'),entry.metrics);
+    api.showModelSpecs($('details-specs'),entry);
     slides=[];
     const cover=entry.cover||entry.placeholder;if(cover)slides.push(cover);
     if(entry.remote || entry.builtin)for(const path of entry.remote?.media_paths || entry.media_paths || [])slides.push(mediaURL(path));

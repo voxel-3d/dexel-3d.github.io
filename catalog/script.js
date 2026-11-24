@@ -3,7 +3,7 @@ import { millimetresPerUnit, normalizeStoredMetrics, scaleSTLMetrics, unitMode }
 import { BUCKET, loadSupabase, publishedModels, SUPABASE_URL, SUPABASE_ANON_KEY } from './catalog-data.js?v=1';
 import { DEFAULT_COLOR, mountPalette, normalizeColor } from './palette.js?v=1';
 import { initPrintOrder } from './print-order.js?v=2';
-import { initModelGallery } from './gallery.js?v=attribution-1';
+import { initModelGallery } from './gallery.js?v=loaded-specs-1';
 let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
@@ -132,19 +132,18 @@ function validMetrics(metrics) {
     (metrics.volume === null || (Number.isFinite(metrics.volume) && metrics.volume >= 0));
 }
 
-function showSpecs(container, metrics) {
+const verifiedModelSpecs = new WeakSet();
+
+function showSpecs(container, metrics, showVolume = true) {
   container.replaceChildren();
   if (!validMetrics(metrics)) return;
   const { width, depth, height, volume } = metrics;
   const dimensions = document.createElement('span');
   dimensions.textContent = 'Ш × Г × В: ' + [width, depth, height].map(v => decimal.format(v)).join(' × ') + ' мм';
   container.append(dimensions);
+  if (!showVolume || !volume) return;
   const material = document.createElement('span');
   container.append(material);
-  if (!volume) {
-    material.textContent = 'Объём не определён. Проверьте замкнутость сетки.';
-    return;
-  }
   const grams = volume * DENSITY_G_CM3 * INFILL;
   material.textContent = 'Объём: ' + decimal.format(volume) + ' см³ · Пластик: ≈ ' + decimal.format(grams) + ' г';
 }
@@ -817,6 +816,10 @@ function disposeRenderer(renderer) {
 }
 
 function showError(message) {
+  if (activeModel) {
+    verifiedModelSpecs.delete(activeModel);
+    showSpecs(byId('viewer-specs'), activeModel.metrics, false);
+  }
   viewer?.dispose();
   viewer = undefined;
   preview.hidden = !preview.hasAttribute('src');
@@ -841,7 +844,7 @@ async function openModel(entry, push = true) {
   canonical.href = modelURL(entry, catalogURL);
   byId('viewer-share-status').textContent = '';
   byId('printer-bed').checked = byId('model-wireframe').checked = false;
-  showSpecs(byId('viewer-specs'), entry.metrics);
+  showSpecs(byId('viewer-specs'), entry.metrics, false);
   byId('viewer-print-only').hidden = canDownload(entry);
   showRelated(entry);
   logModelEvent(entry, 'view');
@@ -869,7 +872,6 @@ async function openModel(entry, push = true) {
     ]);
     model = await loadSTL(THREE, STLLoader, entry, load.signal);
     load.signal.throwIfAborted();
-    showSpecs(byId('viewer-specs'), entry.metrics);
     const card = cards.get(entry);
     if (card) showCardMeta(card, entry);
     renderer = await selectRenderer(THREE);
@@ -877,6 +879,8 @@ async function openModel(entry, push = true) {
     viewer = createViewer(THREE, OrbitControls, renderer, model, entry.title, () => {
       showError('3D-просмотр прервался. Закройте окно и откройте его снова.');
     });
+    verifiedModelSpecs.add(entry);
+    showSpecs(byId('viewer-specs'), entry.metrics);
     preview.hidden = true;
     status.textContent = '';
     enableActions(true);
@@ -2436,7 +2440,9 @@ byId('model-search').addEventListener('input', () => renderCatalog(true));
 byId('download-only').addEventListener('change', () => renderCatalog(true));
 byId('catalog-sort').addEventListener('change', () => renderCatalog(true));
 
-modelGallery = initModelGallery({getClient: () => supabase, describeModel, showModelMeta, showSpecs, openPrintOrder, openModel});
+modelGallery = initModelGallery({getClient: () => supabase, describeModel, showModelMeta,
+  showModelSpecs: (container, entry) => showSpecs(container, entry.metrics, verifiedModelSpecs.has(entry)),
+  openPrintOrder, openModel});
 
 for (const model of publishedModels) {
   model.builtin = true;
