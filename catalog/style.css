@@ -503,3 +503,23 @@ button.catalog-order { cursor: pointer; font: inherit; font-weight: 700; }
 .model-palette input[type="color"] { width: 32px; height: 32px; padding: 2px; cursor: pointer; }
 .palette-name { color: var(--muted); font-size: .85rem; }
 #bulk-cover-preview { max-width: 240px; }
+
+.make-card { position: relative; }
+.make-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid rgb(240 206 114 / 55%);
+  border-radius: 50%;
+  background: #151515;
+  color: #f0ce72;
+  font: 1.4rem/1 system-ui, sans-serif;
+  cursor: pointer;
+}
+.make-delete:hover, .make-delete:focus-visible { background: #f0ce72; color: #151515; }
+.make-delete:disabled { opacity: .65; cursor: wait; }

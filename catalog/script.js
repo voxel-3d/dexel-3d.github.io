@@ -5,7 +5,7 @@ let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
-import { initSocial } from './social.js?v=palette-1';
+import { initSocial } from './social.js?v=makes-delete-1';
 
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
 const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
@@ -2268,7 +2268,7 @@ social = initSocial({
   getEntries: () => entries, categories: CATEGORIES, maxFileSize: MAX_FILE_SIZE,
   openAuth, showCatalog, showAccount, createCard, publicEntry, modelURL,
   queueCover, saveCloudModel, listPublicModels, loadDashboard,
-  closeViewer: () => dialog.close(), cloudSetup, mountPalette, defaultColor: DEFAULT_COLOR
+  closeViewer: () => dialog.close(), cloudSetup, isModerator, mountPalette, defaultColor: DEFAULT_COLOR
 });
 
 for (const entry of entries.values()) {

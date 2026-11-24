@@ -186,6 +186,38 @@ export function initSocial(api) {
     throw new Error('Не удалось сохранить запись. Проверьте подключение и попробуйте снова.');
   }
 
+  function canDeleteMake(row) {
+    const account = api.getUser();
+    return Boolean(account && (account.id === row.user_id || api.isModerator?.(account)));
+  }
+
+  async function deleteMake(entry, row, button) {
+    const client = api.getClient();
+    if (!client || button.disabled || !canDeleteMake(row)) return;
+    if (!window.confirm('Удалить это фото отпечатка?')) return;
+    button.disabled = true;
+    const sameViewer = () => $('model-dialog').open && api.getActiveModel()?.id === entry.id;
+    let deleted = false;
+    try {
+      const { data, error } = await client.from('model_makes')
+        .delete().eq('id', row.id).eq('model_key', entry.id).select('id, photo_path').maybeSingle();
+      if (error || !data) throw new Error('Не удалось удалить фото. Проверьте права доступа.');
+      deleted = true;
+      const result = await client.storage.from('catalog-social').remove([data.photo_path]);
+      if (result.error || !result.data?.length) throw new Error('Запись удалена, но очистку файла в хранилище не удалось подтвердить.');
+    } catch (error) {
+      if (!deleted && sameViewer()) setStatus('makes-status', error.message || 'Не удалось удалить фото.', true);
+      if (deleted && sameViewer()) {
+        await loadMakes(entry);
+        if (sameViewer()) setStatus('makes-status', 'Запись удалена, но очистку файла в хранилище не удалось подтвердить.', true);
+      }
+      return;
+    } finally {
+      button.disabled = false;
+    }
+    if (sameViewer()) await loadMakes(entry);
+  }
+
   async function loadMakes(entry) {
     const version = ++makesVersion;
     const grid = $('makes-grid');
@@ -213,7 +245,18 @@ export function initSocial(api) {
       img.loading = 'lazy'; img.src = photoURL(row.photo_path); img.alt = 'Отпечаток модели, автор ' + row.author_name;
       const meta = document.createElement('strong'); meta.textContent = row.author_name + ' · ' + row.material;
       const comment = document.createElement('p'); comment.textContent = row.comment;
-      card.append(img, meta, comment); grid.append(card);
+      card.append(img, meta, comment);
+      if (canDeleteMake(row)) {
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'make-delete';
+        remove.textContent = '×';
+        remove.title = 'Удалить фото отпечатка';
+        remove.setAttribute('aria-label', 'Удалить фото отпечатка автора ' + row.author_name);
+        remove.addEventListener('click', () => void deleteMake(entry, row, remove));
+        card.append(remove);
+      }
+      grid.append(card);
     }
     setStatus('makes-status', data.length ? '' : 'Фото ещё нет. Вы можете добавить первое.');
   }
@@ -431,6 +474,12 @@ export function initSocial(api) {
     bindFavorite,
     openModel(entry) { bindFavorite($('viewer-favorite'),entry); loadMakes(entry); },
     catalogUpdated() { updateFavoriteButtons(); if (!$('favorite-panel').hidden) renderFavorites(); },
-    sessionChanged(next) { user = next; favoriteKeys = new Set(); voteKeys = new Set(); updateFavoriteButtons(); loadSocial(); }
+    sessionChanged(next) {
+      const changed = user?.id !== next?.id || user?.email !== next?.email;
+      user = next;
+      favoriteKeys = new Set(); voteKeys = new Set(); updateFavoriteButtons(); loadSocial();
+      const entry = api.getActiveModel();
+      if (changed && entry && $('model-dialog').open) void loadMakes(entry);
+    }
   };
 }
