@@ -58,11 +58,19 @@
   const banner = document.createElement('aside');
   banner.className = 'dexel-cookie-banner';
   banner.setAttribute('aria-label', 'Файлы cookie и аналитика');
-  banner.innerHTML = '<p>Мы используем файлы cookie и Яндекс Метрику для работы сайта и расчёта заказов. Продолжая пользоваться сайтом, вы соглашаетесь с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button>. Аналитика включится только после вашего выбора.</p><div><button type="button" data-cookie-accept>Понятно, включить аналитику</button><button type="button" data-cookie-decline>Только необходимые</button></div>';
-  document.body.append(banner);
+  banner.innerHTML = `
+    <p>Мы используем необходимые cookie для работы сайта. Нажмите «Принять», чтобы также разрешить Яндекс Метрику. <button type="button" data-legal-dialog="privacy-dialog">Политика конфиденциальности</button></p>
+    <div>
+      <button type="button" data-cookie-accept>Принять</button>
+      <button type="button" data-cookie-decline>Только необходимые</button>
+    </div>
+  `;
   let choice;
   try { choice = localStorage.getItem(COOKIE_KEY); } catch { /* Private browsing. */ }
   banner.hidden = choice === 'accepted' || choice === 'necessary';
+  const header = document.querySelector('[data-site-header]');
+  if (header) header.after(banner);
+  else document.body.append(banner);
   let analyticsStarted = false;
   function startAnalytics() {
     if (analyticsStarted) return;
@@ -87,9 +95,14 @@
       window.location.reload();
     }
   }
-  banner.querySelector('[data-cookie-accept]').addEventListener('click', () => choose('accepted'));
+  const acceptButton = banner.querySelector('[data-cookie-accept]');
+  acceptButton.addEventListener('click', () => choose('accepted'));
   banner.querySelector('[data-cookie-decline]').addEventListener('click', () => choose('necessary'));
-  document.querySelectorAll('[data-cookie-settings]').forEach(button => button.addEventListener('click', () => { banner.hidden = false; }));
+  document.querySelectorAll('[data-cookie-settings]').forEach(button => button.addEventListener('click', () => {
+    banner.hidden = false;
+    banner.scrollIntoView({ block: 'nearest' });
+    acceptButton.focus({ preventScroll: true });
+  }));
   function followHash() {
     if (['#offer-dialog', '#privacy-dialog', '#rights-dialog'].includes(location.hash)) openDocument(location.hash.slice(1));
   }
