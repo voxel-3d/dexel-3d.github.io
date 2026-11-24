@@ -1,3 +1,4 @@
+import {modelExtension, modelMime, DRIVE_CHUNK_SIZE, MAX_MODEL_SIZE} from '../model-files.js';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
@@ -10,7 +11,7 @@ const moderator={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',email:'igorkruk747@gm
 let saved=[],reads=0,listPages=0,refreshes=0;
 const fileId='Drive_file_001';
 const ctx=vm.createContext({console,TextEncoder,crypto:webcrypto,Blob,File,Uint8Array,atob,Date,Map,Set,
- MODERATOR_EMAILS:['igorkruk747@gmail.com'],CATEGORIES:['Все','Другое','Для дома и быта'],DEFAULT_COLOR:'#23272e',MAX_FILE_SIZE:20*1024*1024,
+ MODERATOR_EMAILS:['igorkruk747@gmail.com'],CATEGORIES:['Все','Другое','Для дома и быта'],DEFAULT_COLOR:'#23272e',MAX_FILE_SIZE:MAX_MODEL_SIZE,modelExtension,modelMime,DRIVE_CHUNK_SIZE,
  user:{id:'ordinary',email:'other@example.com'},byId,document:{createElement:element},
  note:(el,text)=>{el.textContent=text},driveEndpoint:()=> 'configured',driveFileId:path=>path.match(/drive-(.+)\.stl/)?.[1],
  supabase:{from:()=>({select(){return this},order(){return this},async range(){return {data:[{stl_path:'x/drive-Drive_existing_01.stl'}],error:null}}})},
@@ -22,11 +23,12 @@ const ctx=vm.createContext({console,TextEncoder,crypto:webcrypto,Blob,File,Uint8
   assert.equal(p.email,moderator.email);assert.equal(p.ticket,'ticket');
   if(p.action==='list'){
    listPages++;
-   return {ok:true,files:p.cursor?[{fileId:'Drive_large_01',fileName:'large.stl',size:21*1024*1024},{fileId:'Drive_corrupt_01',fileName:'corrupt.stl',size:100}]:[{fileId:'Drive_existing_01',fileName:'old.stl',size:100},{fileId,fileName:'new_part.stl',size:100}],cursor:p.cursor?null:'next'};
+   return {ok:true,files:p.cursor?[{fileId:'Drive_large_01',fileName:'large.stl',size:51*1024*1024},{fileId:'Drive_corrupt_01',fileName:'corrupt.stl',size:100}]:[{fileId:'Drive_existing_01',fileName:'old.stl',size:100},{fileId,fileName:'new_part.3mf',size:100}],cursor:p.cursor?null:'next'};
   }
   reads++;return {ok:true,base64:'AA=='};
  }
 });
+vm.runInContext(source.slice(source.indexOf('async function readDriveBytes('),source.indexOf('async function drivePost(')),ctx);
 vm.runInContext(source.slice(source.indexOf('let driveImportRunning ='),source.indexOf('const cloudSetup = initCloud();')),ctx);
 ctx.updateModeratorPanel();assert.equal(byId('drive-import-panel').hidden,true);
 const submit=()=>byId('drive-import-form').listeners.submit({preventDefault(){}});
@@ -35,7 +37,7 @@ ctx.user=moderator;ctx.updateModeratorPanel();assert.equal(byId('drive-import-pa
 assert.throws(()=>ctx.parseImportMetadata('{bad'),/JSON/);
 assert.throws(()=>ctx.parseImportMetadata('[{"fileName":"a.stl","category":"Все"}]'),/категория/);
 assert.throws(()=>ctx.parseImportMetadata('[{"fileName":"a.stl"},{"fileName":"a.stl"}]'),/повторяется/);
-byId('drive-import-metadata').value='[{"fileName":"new_part.stl","title":"Новая деталь","description":"Готовая деталь","category":"Для дома и быта"}]';
+byId('drive-import-metadata').value='[{"fileName":"new_part.3mf","title":"Новая деталь","description":"Готовая деталь","category":"Для дома и быта"}]';
 await submit();
 assert.equal(saved.length,1);assert.equal(saved[0].fields.title,'Новая деталь');assert.equal(saved[0].fields.category,'Для дома и быта');
 assert.equal(saved[0].sel.importDrive.fileId,fileId);assert.equal(saved[0].sel.metrics.volume,1);

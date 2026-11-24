@@ -1,3 +1,4 @@
+import { binarySTL, DRIVE_CHUNK_SIZE, MAX_MODEL_SIZE, modelExtension, modelMime, parse3MF, prepareModelFile } from './model-files.js?v=1';
 import { millimetresPerUnit, normalizeStoredMetrics, scaleSTLMetrics, unitMode } from './stl-units.js?v=1';
 import { BUCKET, loadSupabase, publishedModels, SUPABASE_URL, SUPABASE_ANON_KEY } from './catalog-data.js?v=1';
 import { DEFAULT_COLOR, mountPalette, normalizeColor } from './palette.js?v=1';
@@ -7,7 +8,7 @@ let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
-import { initSocial } from './social.js?v=makes-delete-1';
+import { initSocial } from './social.js?v=large-models-1';
 
 const INFILL = 0.25;
 const DENSITY_G_CM3 = 1.25;
@@ -20,7 +21,7 @@ const CATEGORIES = [
   'Прототипы и макеты', 'Другое'
 ];
 
-const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const MAX_FILE_SIZE = MAX_MODEL_SIZE;
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
 const MAX_PHOTO_EDGE = 1280;
 const MAX_SOFTWARE_TRIANGLES = 50000;
@@ -152,7 +153,7 @@ async function readMetrics(entry) {
   if (entry.coverTask) await entry.coverTask;
   if (validMetrics(entry.metrics)) return entry.metrics;
   const mode = unitMode(entry.stlUnitMode);
-  const cached = entry.file && localMeasurements.get(entry.file)?.get(mode);
+  const cached = entry.file && localMeasurements.get(entry.file)?.get(modelExtension(entry.file.name) === '3mf' ? 'mm' : mode);
   if (cached) return (entry.metrics = cached);
   const [THREE, { STLLoader }] = await getSTLModules();
   const mesh = await loadSTL(THREE, STLLoader, entry);
@@ -162,7 +163,7 @@ async function readMetrics(entry) {
 
 // Google Apps Script handles STL bytes; Supabase retains metadata and light images.
 function driveFileId(path = '') {
-  return path.match(/\/drive-([A-Za-z0-9_-]{10,160})\.stl$/)?.[1];
+  return path.match(/\/drive-([A-Za-z0-9_-]{10,160})\.(?:stl|3mf)$/)?.[1];
 }
 function driveEndpoint() {
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GOOGLE_DRIVE_UPLOAD_URL)) {
@@ -198,23 +199,52 @@ function driveJSONP(params, signal) {
   });
 }
 async function driveRead(fileId, signal) {
-  const url = new URL(driveEndpoint());
-  url.searchParams.set('id', fileId);
-  let data;
-  try {
-    const response = await fetch(url, {signal, credentials:'omit', redirect:'follow'});
-    if (!response.ok) throw new Error('HTTP ' + response.status);
-    data = await response.json();
-  } catch (error) {
-    signal?.throwIfAborted();
-    data = await driveJSONP({id:fileId}, signal);
-  }
-  if (!data.ok) throw new Error(data.error || 'Не удалось получить STL с Google Диска.');
-  if (typeof data.base64 !== 'string' || data.base64.length > Math.ceil(MAX_FILE_SIZE / 3) * 4) throw new Error('Некорректный размер STL.');
-  const binary = atob(data.base64);
-  if (!binary.length || binary.length > MAX_FILE_SIZE) throw new Error('Некорректный размер STL.');
-  return Uint8Array.from(binary, char => char.charCodeAt(0)).buffer;
+  const read = async params => {
+    const url = new URL(driveEndpoint());
+    for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
+    try {
+      const response = await fetch(url, {signal, credentials:'omit', redirect:'follow'});
+      if (!response.ok) throw new Error('HTTP ' + response.status);
+      return await response.json();
+    } catch {
+      signal?.throwIfAborted();
+      return driveJSONP(params, signal);
+    }
+  };
+  return (await readDriveBytes(params => read({id: fileId, ...params}))).buffer;
 }
+
+async function readDriveBytes(read) {
+  const decode = base64 => {
+    if (typeof base64 !== 'string' || base64.length > Math.ceil(MAX_FILE_SIZE / 3) * 4) {
+      throw new Error('Некорректный размер файла.');
+    }
+    return Uint8Array.from(atob(base64), char => char.charCodeAt(0));
+  };
+  const initial = await read({});
+  if (!initial.ok) throw new Error(initial.error || 'Не удалось прочитать модель с Google Диска.');
+  if (!initial.chunked) {
+    const bytes = decode(initial.base64);
+    if (!bytes.length || bytes.length > MAX_FILE_SIZE) throw new Error('Некорректный размер файла.');
+    return bytes;
+  }
+  const {size, chunkSize} = initial;
+  if (!Number.isInteger(size) || size < 1 || size > MAX_FILE_SIZE || chunkSize !== DRIVE_CHUNK_SIZE) {
+    throw new Error('Некорректные параметры загрузки с Google Диска.');
+  }
+  const bytes = new Uint8Array(size);
+  for (let offset = 0; offset < size; offset += chunkSize) {
+    const part = await read({offset});
+    if (!part.ok) throw new Error(part.error || 'Не удалось прочитать часть файла.');
+    const chunk = decode(part.base64);
+    if (part.offset !== offset || chunk.length !== Math.min(chunkSize, size - offset)) {
+      throw new Error('Google Диск вернул неполный файл.');
+    }
+    bytes.set(chunk, offset);
+  }
+  return bytes;
+}
+
 async function drivePost(action, payload) {
   const endpoint = driveEndpoint();
   const {data, error} = await supabase.auth.getSession();
@@ -249,6 +279,24 @@ function fileBase64(file) {
     reader.readAsDataURL(file);
   });
 }
+async function uploadModelFile(file, fields) {
+  const uploadedFile = await prepareModelFile(file, getSTLModules);
+  const name = uploadedFile.name;
+  // Preserve the existing small-file route and keep Base64 bodies below its old limit.
+  if (uploadedFile.size <= 20 * 1024 * 1024) {
+    return drivePost('upload', {...fields, name, base64: await fileBase64(uploadedFile)});
+  }
+  const {uploadId} = await drivePost('upload-start', {...fields, name, size: uploadedFile.size});
+  if (typeof uploadId !== 'string') throw new Error('Обновите развёртывание Apps Script для загрузки крупных файлов.');
+  let result;
+  for (let offset = 0; offset < uploadedFile.size; offset += DRIVE_CHUNK_SIZE) {
+    const chunk = uploadedFile.slice(offset, offset + DRIVE_CHUNK_SIZE);
+    result = await drivePost('upload-chunk', {uploadId, offset, base64: await fileBase64(chunk)});
+    if (result.nextOffset !== offset + chunk.size) throw new Error('Google Диск не подтвердил запись части файла.');
+  }
+  return result;
+}
+
 async function removeAsset(path) {
   const id = driveFileId(path);
   if (id) await drivePost('delete', {fileId:id, ...(isModerator() ? {moderatorEmail:user.email} : {})});
@@ -292,7 +340,7 @@ async function downloadDriveModel(event, entry, name) {
   button.textContent = 'Загружаем STL…';
   try {
     const bytes = await driveRead(entry.driveId);
-    const url = URL.createObjectURL(new Blob([bytes], {type:'model/stl'}));
+    const url = URL.createObjectURL(new Blob([bytes], {type:modelMime(modelExtension(name))}));
     const link = document.createElement('a');
     link.href = url; link.download = name;
     document.body.append(link); link.click(); link.remove();
@@ -315,25 +363,30 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
   }
   signal?.throwIfAborted();
   if (!bytes.byteLength || bytes.byteLength > MAX_FILE_SIZE) {
-    throw new Error('Нужен непустой STL-файл размером до 20 МБ.');
+    throw new Error('Нужен непустой файл STL или 3MF размером до 50 МБ.');
   }
 
   let geometry;
   let originalRadius;
   try {
-    const header = new Uint8Array(bytes, 0, Math.min(12, bytes.byteLength));
-    const startsWithSolid = new TextDecoder().decode(header).trimStart().startsWith('solid');
-    if (!startsWithSolid) {
-      const view = new DataView(bytes);
-      if (view.byteLength < 84 || 84 + view.getUint32(80, true) * 50 > view.byteLength) throw new Error();
+    const extension = modelExtension(entry.file?.name || entry.remote?.stl_path || entry.fileUrl);
+    const is3MF = extension === '3mf';
+    if (is3MF) {
+      geometry = await parse3MF(THREE, bytes);
+      signal?.throwIfAborted();
+    } else {
+      const header = new Uint8Array(bytes, 0, Math.min(84, bytes.byteLength));
+      if (!binarySTL(bytes) && !/^\s*solid(?:\s|$)/.test(new TextDecoder().decode(header))) {
+        throw new Error('Файл не похож на STL.');
+      }
+      geometry = new STLLoader().parse(bytes);
     }
-    geometry = new STLLoader().parse(bytes);
     const positions = geometry.getAttribute('position');
     if (!positions || positions.count < 3 || positions.count % 3 !== 0) throw new Error();
     geometry.computeBoundingSphere();
     const { center, radius } = geometry.boundingSphere;
     if (!Number.isFinite(radius) || radius <= 0) throw new Error();
-    const mode = unitMode(entry.stlUnitMode ?? entry.metrics?.unitMode);
+    const mode = is3MF ? 'mm' : unitMode(entry.stlUnitMode ?? entry.metrics?.unitMode);
     entry.metrics = measureGeometry(geometry, mode);
     if (!validMetrics(entry.metrics)) throw new Error();
     originalRadius = radius * millimetresPerUnit(entry.metrics.stlUnit);
@@ -346,9 +399,10 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
     geometry.scale(1 / radius, 1 / radius, 1 / radius);
     // STL is Z-up. Three.js is Y-up.
     geometry.rotateX(-Math.PI / 2);
-  } catch {
+  } catch (error) {
     geometry?.dispose();
-    throw new Error('Не удалось прочитать геометрию. Проверьте STL-файл.');
+    signal?.throwIfAborted();
+    throw new Error('Не удалось прочитать геометрию. ' + (error.message || 'Проверьте файл STL или 3MF.'));
   }
 
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
@@ -989,9 +1043,10 @@ function createCard(entry) {
   download.hidden = !downloadable;
   if (downloadable) {
     const fileName = entry.remote
-      ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.stl'
+      ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.' + (modelExtension(entry.remote.stl_path) || 'stl')
       : entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
     download.download = fileName;
+    download.textContent = modelExtension(fileName) === '3mf' ? 'Скачать 3MF' : 'Скачать STL';
     if (entry.driveId) {
       download.href = 'https://drive.google.com/file/d/' + entry.driveId + '/view';
       download.addEventListener('click', event => downloadDriveModel(event, entry, fileName));
@@ -1632,12 +1687,11 @@ byId('drive-import-form').addEventListener('submit', async event => {
       note(status,`Обработано ${processed} из ${files.length}. ${file.fileName}`);
       try {
         if(existing.has(file.fileId)){skipped++;continue;}
-        if(!Number.isFinite(file.size)||file.size<=0||file.size>MAX_FILE_SIZE)throw new Error('Файл пуст или превышает 20 МБ.');
-        const result=await moderatorRead({action:'import-read',id:file.fileId},account);
-        if(typeof result.base64!=='string'||result.base64.length>Math.ceil(MAX_FILE_SIZE/3)*4)throw new Error('Некорректный размер STL.');
-        const bytes=Uint8Array.from(atob(result.base64),char=>char.charCodeAt(0));
-        if(!bytes.byteLength||bytes.byteLength>MAX_FILE_SIZE)throw new Error('Некорректный размер STL.');
-        const localFile=new File([bytes],file.fileName,{type:'model/stl'});
+        if(!Number.isFinite(file.size)||file.size<=0||file.size>MAX_FILE_SIZE)throw new Error('Файл пуст или превышает 50 МБ.');
+        const extension = modelExtension(file.fileName);
+        if (!extension) throw new Error('Поддерживаются STL и 3MF.');
+        const bytes = await readDriveBytes(params => moderatorRead({action:'import-read',id:file.fileId,...params},account));
+        const localFile=new File([bytes],file.fileName,{type:modelMime(extension)});
         const modelId=await driveImportModelId(file.fileId);
         const selection={file:localFile,color:DEFAULT_COLOR,azimuth:35,elevation:30};
         const cover=await queueCover(selection,()=>!driveImportCancelled&&user?.id===account.id);
@@ -1646,7 +1700,7 @@ byId('drive-import-form').addEventListener('submit', async event => {
         selection.png=new Blob([pngBytes],{type:'image/png'});
         selection.importDrive={fileId:file.fileId,modelId};
         const custom=metadata.get(file.fileName)||{};
-        let title=file.fileName.replace(/\.stl$/i,'').replace(/[_-]+/g,' ').trim();
+        let title=file.fileName.replace(/\.(stl|3mf)$/i,'').replace(/[_-]+/g,' ').trim();
         title=(title.charAt(0).toUpperCase()+title.slice(1)).slice(0,100)||'3D-модель';
         const fields={title:custom.title?.trim()||title,description:custom.description?.trim()||'',category:custom.category||'Другое',tags:[]};
         await saveCloudModel(fields,selection,null,account);
@@ -1704,6 +1758,7 @@ function editorSTL() {
   return {
     file,
     driveId,
+    remote: !file && editing?.stl_path ? {stl_path: editing.stl_path} : undefined,
     fileUrl: !file && editing && !driveId
       ? (editing.builtin ? editing.fileUrl : cloudFile(editing.stl_path)) : undefined,
     color: editorPalette.value,
@@ -1823,6 +1878,7 @@ function openEditor(row) {
   editing = row;
   addForm.reset();
   unitsInput.value = unitMode(row?.geometry_metrics?.unitMode);
+  unitsInput.disabled = modelExtension(row?.stl_path) === '3mf';
   modelGallery.reset(row);
   editorPalette.set(row?.cover_color ?? row?.color);
   recapture.hidden = !row;
@@ -1900,9 +1956,9 @@ async function renderEditorCover() {
   const photo = photoInput.files[0];
   angleFields.hidden = Boolean(photo) || (!file && !editing);
   stlCoverButton.hidden = !photo || Boolean(editing?.builtin);
-  if (file && (!/\.stl$/i.test(file.name) || !file.size || file.size > MAX_FILE_SIZE)) {
+  if (file && (!modelExtension(file.name) || !file.size || file.size > MAX_FILE_SIZE)) {
     angleFields.hidden = true;
-    note(addStatus, 'Выберите непустой STL-файл размером до 20 МБ.', true);
+    note(addStatus, 'Выберите непустой файл STL или 3MF размером до 50 МБ.', true);
     return;
   }
   if (!file && !photo && !editing) {
@@ -1959,6 +2015,7 @@ recapture.addEventListener('click', () => {
 });
 
 fileInput.addEventListener('change', () => {
+  unitsInput.disabled = modelExtension(fileInput.files[0]?.name || editing?.stl_path) === '3mf';
   if (fileInput.files.length || photoInput.files.length || !editing) renderEditorCover();
   else {
     clearEditorPreview();
@@ -2082,15 +2139,18 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
       checkImportAccount(account);
       if (claim.fileId !== selection.importDrive.fileId || claim.modelId !== id) throw new Error('Не удалось закрепить STL за моделью.');
       payload.geometry_metrics = selection.metrics;
-      payload.stl_path = account.id + '/' + id + '/drive-' + claim.fileId + '.stl';
+      payload.stl_path = account.id + '/' + id + '/drive-' + claim.fileId + '.' + modelExtension(selection.file.name);
       // Imported sources must NEVER be trashed when a cover or database write fails.
     } else if (selection?.file) {
       payload.geometry_metrics = selection.metrics;
-      if (!selection.file.size || selection.file.size > MAX_FILE_SIZE) throw new Error('STL должен быть не больше 20 МБ.');
-      const result = await drivePost('upload', {modelId:id, name:selection.file.name, base64:await fileBase64(selection.file),
+      const extension = modelExtension(selection.file.name);
+      if (!extension || !selection.file.size || selection.file.size > MAX_FILE_SIZE) {
+        throw new Error('Выберите непустой файл STL или 3MF размером до 50 МБ.');
+      }
+      const result = await uploadModelFile(selection.file, {modelId:id,
         ...(assetOwner !== account.id ? {moderatorEmail:account.email} : {})});
       if (!/^[A-Za-z0-9_-]{10,160}$/.test(result.fileId || '')) throw new Error('Google Диск вернул неверный ID файла.');
-      payload.stl_path = assetOwner + '/' + id + '/drive-' + result.fileId + '.stl';
+      payload.stl_path = assetOwner + '/' + id + '/drive-' + result.fileId + '.' + extension;
       drivePath = payload.stl_path;
     }
     if (selection) {
@@ -2265,6 +2325,7 @@ addForm.addEventListener('submit', async event => {
     saving = false;
     publicCountFields.disabled = publicCountFields.hidden || !isModerator();
     for (const control of editorControls) control.disabled = false;
+    unitsInput.disabled = modelExtension(fileInput.files[0]?.name || editing?.stl_path) === '3mf';
     addButton.disabled = !editing && !draft?.file;
   }
 });

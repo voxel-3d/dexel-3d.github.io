@@ -4,7 +4,9 @@
  */
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 const FOLDER_ID = '1ZLyfOh_iJ-qmSKeU9YsA4g6rw-fTDIi1';
-const MAX_STL_BYTES = 20 * 1024 * 1024;
+const MAX_MODEL_BYTES = 50 * 1024 * 1024;
+const LEGACY_BODY_LIMIT = 20 * 1024 * 1024;
+const DRIVE_CHUNK_SIZE = 8 * 1024 * 1024;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DRIVE_ID = /^[A-Za-z0-9_-]{10,160}$/;
 
@@ -54,7 +56,129 @@ function file_(id) {
   if (meta.app !== 'dexel-stl-v1' || !UUID.test(meta.owner) || !UUID.test(meta.model)) throw new Error('Неверные данные владельца файла.');
   return {file: file, meta: meta};
 }
-function path_(id, meta) { return meta.owner + '/' + meta.model + '/drive-' + id + '.stl'; }
+function modelExtension_(name) { const match = String(name).match(/\.(stl|3mf)$/i); return match && match[1].toLowerCase(); }
+function path_(id, meta) { return meta.owner + '/' + meta.model + '/drive-' + id + '.' + (modelExtension_(meta.originalName) || 'stl'); }
+function uploadName_(name) {
+  const cleaned = String(name || 'model.stl').replace(/[\x00-\x1f/\\]/g, '_');
+  const extension = modelExtension_(cleaned);
+  if (!extension) throw new Error('Поддерживаются файлы STL и 3MF.');
+  return cleaned.slice(0, -4).slice(0, 156) + '.' + extension;
+}
+function modelMime_(extension) { return extension === '3mf' ? 'model/3mf' : 'model/stl'; }
+function matchAssetOwner_(body, account) {
+  if (!UUID.test(body.modelId)) throw new Error('Неверный modelId.');
+  const rows = api_('/rest/v1/models?select=user_id&id=eq.' + body.modelId, body.accessToken);
+  const owner = rows.length ? rows[0].user_id : account.id;
+  if (owner !== account.id) moderator_(account, body.moderatorEmail);
+  return owner;
+}
+function decodeUpload_(value, limit) {
+  if (typeof value !== 'string' || value.length > Math.ceil(limit / 3) * 4 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/.test(value)) throw new Error('Некорректные данные файла.');
+  const bytes = Utilities.base64Decode(value);
+  if (!bytes.length || bytes.length > limit) throw new Error('Некорректный размер части файла.');
+  return bytes;
+}
+function assertModelHeader_(bytes, size, extension) {
+  if (extension === '3mf') {
+    if (bytes.length < 4 || bytes[0] !== 80 || bytes[1] !== 75 ||
+        bytes[2] !== 3 || bytes[3] !== 4) throw new Error('Файл не похож на архив 3MF.');
+    return;
+  }
+  if (bytes.length >= 84) {
+    const n = (bytes[80]&255) + (bytes[81]&255)*256 + (bytes[82]&255)*65536 + (bytes[83]&255)*16777216;
+    if (n > 0 && 84 + 50 * n === size) return;
+  }
+  const text = Utilities.newBlob(bytes.slice(0, 84)).getDataAsString('UTF-8');
+  if (!/^\s*solid(?:\s|$)/.test(text)) throw new Error('Файл не похож на STL.');
+}
+function driveRequest_(url, options) {
+  return UrlFetchApp.fetch(url, {
+    ...options, muteHttpExceptions:true, followRedirects:false,
+    headers:{...options.headers,Authorization:'Bearer ' + ScriptApp.getOAuthToken()}
+  });
+}
+function header_(response, name) {
+  const headers = response.getHeaders();
+  const key = Object.keys(headers).find(key => key.toLowerCase() === name.toLowerCase());
+  return key ? String(headers[key]) : '';
+}
+function startUpload_(body, account) {
+  if (!Number.isInteger(body.size) || body.size <= LEGACY_BODY_LIMIT || body.size > MAX_MODEL_BYTES) {
+    throw new Error('Выберите непустой файл STL или 3MF размером до 50 МБ.');
+  }
+  const owner = matchAssetOwner_(body, account);
+  const name = uploadName_(body.name);
+  const extension = modelExtension_(name);
+  const mime = modelMime_(extension);
+  const uploadId = Utilities.getUuid();
+  const description = JSON.stringify({app:'dexel-stl-v1',owner,model:body.modelId,originalName:name});
+  const response = driveRequest_('https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&fields=id', {
+    method:'post', contentType:'application/json',
+    headers:{'X-Upload-Content-Type':mime,'X-Upload-Content-Length':String(body.size)},
+    payload:JSON.stringify({name: owner + '_' + uploadId + '.' + extension, mimeType:mime, parents:[FOLDER_ID], description})
+  });
+  const url = header_(response,'Location');
+  if (response.getResponseCode() !== 200 || !/^https:\/\/www\.googleapis\.com\/upload\/drive\/v3\/files\?/.test(url)) {
+    throw new Error('Не удалось начать загрузку. Проверьте Drive API в проекте Apps Script (HTTP ' + response.getResponseCode() + ').');
+  }
+  CacheService.getScriptCache().put('upload:'+uploadId, JSON.stringify({url,owner:account.id,name,extension,mime,size:body.size,nextOffset:0}),21600);
+  return {ok:true,uploadId};
+}
+function putUploadChunk_(body, account) {
+  if (!UUID.test(body.uploadId)) throw new Error('Неверный идентификатор загрузки.');
+  const cache = CacheService.getScriptCache();
+  const key = 'upload:'+body.uploadId;
+  const raw = cache.get(key);
+  if (!raw) throw new Error('Сеанс загрузки истёк. Выберите файл заново.');
+  const session = JSON.parse(raw);
+  if (session.owner !== account.id) throw unauthorized_();
+  const offset = body.offset;
+  if (!Number.isInteger(offset) || offset !== session.nextOffset) throw new Error('Неверный порядок частей файла.');
+  const length = Math.min(DRIVE_CHUNK_SIZE, session.size - offset);
+  const bytes = decodeUpload_(body.base64, length);
+  if (bytes.length !== length) throw new Error('Получена неполная часть файла.');
+  if (!offset) assertModelHeader_(bytes, session.size, session.extension);
+  const nextOffset = offset + length;
+  const response = driveRequest_(session.url, {method:'put', contentType:session.mime, payload:bytes,
+    headers:{'Content-Range':'bytes '+offset+'-'+(nextOffset-1)+'/'+session.size}});
+  const status = response.getResponseCode();
+  if (status === 308 && nextOffset < session.size && header_(response,'Range') === 'bytes=0-'+(nextOffset-1)) {
+    session.nextOffset = nextOffset;
+    cache.put(key,JSON.stringify(session),21600);
+    return {ok:true,nextOffset};
+  }
+  if ((status !== 200 && status !== 201) || nextOffset !== session.size) {
+    throw new Error('Google Диск не подтвердил запись части файла (HTTP ' + status + ').');
+  }
+  const file = folderFile_(JSON.parse(response.getContentText()).id);
+  try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); }
+  catch (err) { file.setTrashed(true); throw err; }
+  cache.remove(key);
+  return {...links_(file),name:session.name,nextOffset};
+}
+function modelRead_(file, params, name) {
+  const size = file.getSize();
+  if (!size || size > MAX_MODEL_BYTES) throw new Error('Выберите непустой файл STL или 3MF размером до 50 МБ.');
+  const result = {...links_(file),name};
+  if (size <= LEGACY_BODY_LIMIT) {
+    result.base64 = Utilities.base64Encode(file.getBlob().getBytes());
+    return result;
+  }
+  if (params.offset === undefined) return {...result,chunked:true,chunkSize:DRIVE_CHUNK_SIZE};
+  const offset = Number(params.offset);
+  if (!/^\d+$/.test(params.offset) || !Number.isInteger(offset) || offset >= size || offset % DRIVE_CHUNK_SIZE) {
+    throw new Error('Неверное смещение части файла.');
+  }
+  const end = Math.min(size,offset+DRIVE_CHUNK_SIZE)-1;
+  const response = driveRequest_('https://www.googleapis.com/drive/v3/files/'+file.getId()+'?alt=media', {
+    headers:{Range:'bytes='+offset+'-'+end}
+  });
+  if (response.getResponseCode() !== 206) throw new Error('Google Диск не вернул часть файла.');
+  const bytes = response.getContent();
+  if (bytes.length !== end-offset+1) throw new Error('Google Диск вернул неполную часть файла.');
+  return {...result,offset,base64:Utilities.base64Encode(bytes)};
+}
 function links_(file) {
   const id = file.getId();
   return {ok: true, fileId: id, name: file.getName(), size: file.getSize(),
@@ -63,7 +187,7 @@ function links_(file) {
     readUrl: ScriptApp.getService().getUrl() + '?id=' + id};
 }
 function validSTL_(bytes) {
-  if (!bytes.length || bytes.length > MAX_STL_BYTES) throw new Error('STL должен быть непустым и не больше 20 МБ.');
+  if (!bytes.length || bytes.length > LEGACY_BODY_LIMIT) throw new Error('Некорректный размер файла. Для крупной модели используйте загрузку частями.');
   if (bytes.length >= 84) {
     const n = (bytes[80]&255) + (bytes[81]&255)*256 + (bytes[82]&255)*65536 + (bytes[83]&255)*16777216;
     if (n > 0 && 84 + 50 * n === bytes.length) return;
@@ -105,7 +229,7 @@ function listSTL_(p) {
   while (iterator.hasNext() && scanned++ < 200) {
     const candidate = iterator.next();
     const file = folderFile_(candidate.getId()); // Recheck folder even with a supplied continuation token.
-    if (file.isTrashed() || !/\.stl$/i.test(file.getName())) continue;
+    if (file.isTrashed() || !modelExtension_(file.getName())) continue;
     let name = file.getName();
     try { const meta = JSON.parse(file.getDescription()); if (meta.app === 'dexel-stl-v1') name = meta.originalName || name; } catch (_) {}
     files.push({fileId:file.getId(), fileName:name, size:file.getSize(), url:'https://drive.google.com/file/d/'+file.getId()+'/view'});
@@ -116,7 +240,7 @@ function doPost(e) {
   let receipt, authenticatedOwner;
   try {
     const raw = e && e.postData && e.postData.contents;
-    if (!raw || raw.length > Math.ceil(MAX_STL_BYTES / 3) * 4 + 16384) throw new Error('Слишком большой или пустой запрос.');
+    if (!raw || raw.length > Math.ceil(LEGACY_BODY_LIMIT / 3) * 4 + 16384) throw new Error('Слишком большой или пустой запрос.');
     const body = JSON.parse(raw);
     const account = authenticatedUser_(body.accessToken);
     const owner = account.id;
@@ -141,7 +265,7 @@ function doPost(e) {
       } else if (body.action === 'import-claim') {
         moderator_(account, body.moderatorEmail);
         const file = folderFile_(body.fileId);
-        if (file.isTrashed() || !/\.stl$/i.test(file.getName()) || !file.getSize() || file.getSize()>MAX_STL_BYTES) throw new Error('Нужен STL до 20 МБ из папки каталога.');
+        if (file.isTrashed() || !modelExtension_(file.getName()) || !file.getSize() || file.getSize()>MAX_MODEL_BYTES) throw new Error('Нужен STL или 3MF размером до 50 МБ из папки каталога.');
         if (body.modelId !== importId_(body.fileId)) throw new Error('Неверный ID импортируемой модели.');
         let meta;
         try { meta = JSON.parse(file.getDescription()); } catch (_) {}
@@ -153,19 +277,20 @@ function doPost(e) {
         }
         result = links_(file);
         result.modelId = body.modelId;
+      } else if (body.action === 'upload-start') {
+        result = startUpload_(body, account);
+      } else if (body.action === 'upload-chunk') {
+        result = putUploadChunk_(body, account);
       } else if (body.action === 'upload') {
-        if (!UUID.test(body.modelId)) throw new Error('Неверный modelId.');
-        const rows = api_('/rest/v1/models?select=user_id&id=eq.' + body.modelId, body.accessToken);
-        const assetOwner = rows.length ? rows[0].user_id : owner;
-        if (assetOwner !== owner) moderator_(account, body.moderatorEmail);
-        if (typeof body.base64 !== 'string' || body.base64.length > Math.ceil(MAX_STL_BYTES/3)*4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.base64)) throw new Error('Неверный Base64.');
-        const bytes = Utilities.base64Decode(body.base64);
-        validSTL_(bytes);
-        const name = String(body.name || 'model.stl').replace(/[\x00-\x1f/\\]/g, '_').slice(0, 160);
-        if (!/\.stl$/i.test(name)) throw new Error('Можно загрузить только .stl.');
+        const assetOwner = matchAssetOwner_(body, account);
+        const bytes = decodeUpload_(body.base64, LEGACY_BODY_LIMIT);
+        const name = uploadName_(body.name);
+        const extension = modelExtension_(name);
+        if (extension === 'stl') validSTL_(bytes);
+        else assertModelHeader_(bytes, bytes.length, extension);
         const folder = DriveApp.getFolderById(FOLDER_ID);
         // Deterministic physical name prevents duplicates even after the receipt cache expires.
-        const physicalName = assetOwner + '_' + body.requestId + '.stl';
+        const physicalName = assetOwner + '_' + body.requestId + '.' + extension;
         const previous = folder.getFilesByName(physicalName);
         let file;
         if (previous.hasNext()) {
@@ -173,7 +298,7 @@ function doPost(e) {
           const prior = file_(file.getId());
           if (prior.meta.owner !== assetOwner || prior.meta.model !== body.modelId) throw new Error('Конфликт повторного запроса.');
         } else {
-          file = folder.createFile(Utilities.newBlob(bytes, 'model/stl', physicalName));
+          file = folder.createFile(Utilities.newBlob(bytes, modelMime_(extension), physicalName));
           try {
             file.setDescription(JSON.stringify({app:'dexel-stl-v1', owner:assetOwner, model:body.modelId, originalName:name}));
             file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
@@ -209,8 +334,8 @@ function doGet(e) {
     if (p.action === 'import-read') {
       moderatorTicket_(p);
       const file = folderFile_(p.id);
-      if (file.isTrashed() || !/\.stl$/i.test(file.getName()) || !file.getSize() || file.getSize()>MAX_STL_BYTES) throw new Error('Нужен STL до 20 МБ.');
-      return output_({ok:true,fileId:file.getId(),name:file.getName(),base64:Utilities.base64Encode(file.getBlob().getBytes())},p.callback);
+      if (file.isTrashed() || !modelExtension_(file.getName()) || !file.getSize() || file.getSize()>MAX_MODEL_BYTES) throw new Error('Нужен STL или 3MF размером до 50 МБ.');
+      return output_(modelRead_(file,p,file.getName()),p.callback);
     }
     // JSONP is read-only. Session tokens are never placed in URLs or returned.
     if (p.action === 'status') {
@@ -223,10 +348,6 @@ function doGet(e) {
     if (item.file.isTrashed()) throw new Error('Файл удалён.');
     const rows = api_('/rest/v1/models?select=id&deleting=eq.false&stl_path=eq.' + encodeURIComponent(path_(p.id, item.meta)));
     if (!rows.length) throw new Error('Модель ещё не опубликована или уже удалена.');
-    if (item.file.getSize() > MAX_STL_BYTES) throw new Error('Файл превышает 20 МБ.');
-    const result = links_(item.file);
-    result.name = item.meta.originalName;
-    result.base64 = Utilities.base64Encode(item.file.getBlob().getBytes());
-    return output_(result, p.callback);
+    return output_(modelRead_(item.file,p,item.meta.originalName),p.callback);
   } catch (err) { return output_({ok:false, status:err.status || 400, code:err.code, error:err.message || 'Не удалось прочитать STL.'}, p.callback); }
 }

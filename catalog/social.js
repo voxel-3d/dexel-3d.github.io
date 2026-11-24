@@ -409,7 +409,7 @@ export function initSocial(api) {
     const revision = ++previewVersion;
     bulkPreview.hidden = true;
     const file = $('bulk-files').files?.[0];
-    if (bulkRunning || !file || !/\.stl$/i.test(file.name) || !file.size || file.size > api.maxFileSize) return;
+    if (bulkRunning || !file || !/\.(stl|3mf)$/i.test(file.name) || !file.size || file.size > api.maxFileSize) return;
     const active = () => revision === previewVersion && $('bulk-dialog').open && !bulkRunning;
     try {
       const cover = await api.queueCover({file, color: bulkPalette.value, azimuth: 35, elevation: 30}, active);
@@ -432,7 +432,7 @@ export function initSocial(api) {
     event.preventDefault();
     if (bulkRunning || !requireAccount()) return;
     const files = [...$('bulk-files').files];
-    if (!files.length || files.length > 50) { setStatus('bulk-status','Выберите от 1 до 50 STL-файлов.',true); return; }
+    if (!files.length || files.length > 50) { setStatus('bulk-status','Выберите от 1 до 50 файлов STL или 3MF.',true); return; }
     const owner = api.getUser(), category = $('bulk-category').value, color = bulkPalette.value;
     const progress = $('bulk-progress'), errors = $('bulk-errors');
     errors.replaceChildren(); progress.max = files.length; progress.value = 0; progress.hidden = false;
@@ -443,8 +443,8 @@ export function initSocial(api) {
       setStatus('bulk-status','Обработано ' + progress.value + ' из ' + files.length + ' моделей…');
       try {
         if (api.getUser()?.id !== owner.id) throw new Error('Сеанс завершён. Войдите снова.');
-        if (!/\.stl$/i.test(file.name) || !file.size || file.size > api.maxFileSize) throw new Error('Нужен непустой STL до 20 МБ.');
-        let title = file.name.replace(/\.stl$/i,'').replace(/[-_]+/g,' ').trim().slice(0,100);
+        if (!/\.(stl|3mf)$/i.test(file.name) || !file.size || file.size > api.maxFileSize) throw new Error('Нужен непустой файл STL или 3MF размером до 50 МБ.');
+        let title = file.name.replace(/\.(stl|3mf)$/i,'').replace(/[-_]+/g,' ').trim().slice(0,100);
         if (!title) throw new Error('Укажите имя файла.');
         title = title[0].toLocaleUpperCase('ru') + title.slice(1);
         const selection = {file,color,azimuth:35,elevation:30};

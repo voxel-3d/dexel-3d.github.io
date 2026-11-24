@@ -1,3 +1,4 @@
+import {modelExtension, DRIVE_CHUNK_SIZE, MAX_MODEL_SIZE} from '../model-files.js';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {readFileSync} from 'node:fs';
@@ -69,7 +70,7 @@ const source=readFileSync(new URL('../script.js',import.meta.url),'utf8');
 const start=source.indexOf('function driveFileId('), end=source.indexOf('async function loadSTL(');
 let calls=[], jsonpCalls=0;
 const frontend=vm.createContext({console,URL,Uint8Array,atob,DOMException,AbortSignal,crypto:webcrypto,
- GOOGLE_DRIVE_UPLOAD_URL:'https://script.google.com/macros/s/test/exec',MAX_FILE_SIZE:20*1024*1024,
+ GOOGLE_DRIVE_UPLOAD_URL:'https://script.google.com/macros/s/test/exec',MAX_FILE_SIZE:MAX_MODEL_SIZE,
  supabase:{auth:{getSession:async()=>({data:{session:{access_token:token}}})}},
  fetch:async (url,options)=>{calls.push({url,options});return {ok:true,json:async()=>({ok:true,fileId:'Drive_file_99',base64:bytes.toString('base64')})};}
 });
@@ -106,9 +107,9 @@ function query(){
  return ambiguousDB?{data:null,error:{code:'response-lost'}}:{data:saved,error:null};
  }};return q;
 }
-const saveCtx=vm.createContext({console,crypto:{randomUUID:()=>model},MAX_FILE_SIZE:20*1024*1024,BUCKET:'stl-models',accountStatus:{},
+const saveCtx=vm.createContext({console,modelExtension,crypto:{randomUUID:()=>model},MAX_FILE_SIZE:MAX_MODEL_SIZE,BUCKET:'stl-models',accountStatus:{},
  supabase:{from:query,storage:{from:()=>({upload:async(path,data,options)=>{assets.push({path,options});return {error:failCover?new Error('cover failed'):null}}})}},
- drivePost:async(action)=>{assert.equal(action,'upload');uploadedStl++;return {fileId:'Drive_new_01'}},
+ uploadModelFile:async()=>{uploadedStl++;return {fileId:'Drive_new_01'}},
  fileBase64:async()=>bytes.toString('base64'),webpCover:async()=>({arrayBuffer:async()=>new ArrayBuffer(8)}),
  removeAsset:async path=>removed.push(path),note(){}});
 vm.runInContext(source.slice(source.indexOf('async function saveCloudModel('),source.indexOf('async function saveLocalModel(')),saveCtx);
@@ -179,3 +180,60 @@ row.deleting = true;
 assert.equal(post({action:'delete',fileId:replacement.fileId,moderatorEmail:email}).ok,true);
 assert.equal(files.get(replacement.fileId).trashed,true);
 console.log('Admin Drive: authorized replacement, original ownership and safe staged deletion passed.');
+
+// A 50 MiB model should never pass through a single Base64 request.
+const savedFetch = ctx.UrlFetchApp.fetch;
+ctx.ScriptApp.getOAuthToken = () => 'test-drive-access';
+ctx.CacheService.getScriptCache = () => ({get:key=>receipts.get(key),put:(key,value)=>receipts.set(key,value),remove:key=>receipts.delete(key)});
+const size = MAX_MODEL_SIZE;
+const largeModel = Buffer.alloc(size);
+largeModel.set([80,75,3,4]);
+let committed = 0;
+let largeFile;
+const sessionURL = 'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id=test';
+const response = (status, headers = {}, content = '', raw = Buffer.alloc(0)) => ({
+  getResponseCode:()=>status, getHeaders:()=>headers, getContentText:()=>content, getContent:()=>raw
+});
+ctx.Utilities.base64Decode = value => Buffer.from(value, 'base64');
+ctx.UrlFetchApp.fetch = (url, options) => {
+  if (!url.includes('googleapis.com')) return savedFetch(url, options);
+  assert.equal(options.headers.Authorization, 'Bearer test-drive-access');
+  if (url.includes('fields=id')) {
+    const metadata = JSON.parse(options.payload);
+    assert.equal(options.headers['X-Upload-Content-Length'], String(size));
+    assert.match(metadata.name, /\.3mf$/);
+    largeFile = folder.createFile(blob(largeModel, metadata.mimeType, metadata.name));
+    largeFile.setDescription(metadata.description);
+    return response(200, {location:sessionURL});
+  }
+  if (url === sessionURL) {
+    const part = options.payload;
+    assert.equal(options.headers['Content-Range'], 'bytes '+committed+'-'+(committed+part.length-1)+'/'+size);
+    assert.ok(part.equals(largeModel.subarray(committed, committed+part.length)));
+    committed += part.length;
+    return committed === size ? response(200, {}, JSON.stringify({id:largeFile.id}))
+      : response(308, {Range:'bytes=0-'+(committed-1)});
+  }
+  const [,start,end] = /^bytes=(\d+)-(\d+)$/.exec(options.headers.Range);
+  return response(206, {}, '', largeModel.subarray(Number(start),Number(end)+1));
+};
+row = undefined;
+assert.equal(post({action:'upload-start',modelId:model,name:'extra.3mf',size:size+1}).ok,false);
+const startUpload = post({action:'upload-start',modelId:model,name:'extra.3mf',size});
+assert.equal(startUpload.ok,true);
+assert.equal(post({action:'upload-chunk',uploadId:startUpload.uploadId,offset:0,base64:'AA==',accessToken:otherToken}).status,403);
+let outcome;
+for (let offset=0;offset<size;offset+=DRIVE_CHUNK_SIZE) {
+  const chunk=largeModel.subarray(offset,offset+DRIVE_CHUNK_SIZE);
+  outcome=post({action:'upload-chunk',uploadId:startUpload.uploadId,offset,base64:chunk.toString('base64')});
+  assert.equal(outcome.nextOffset,offset+chunk.length,outcome.error);
+}
+assert.equal(outcome.fileId,largeFile.id);
+assert.equal(largeFile.public,true);
+row = {id:model,user_id:owner,deleting:false,stl_path:owner+'/'+model+'/drive-'+largeFile.id+'.3mf'};
+const read=async params=>get({id:largeFile.id,...Object.fromEntries(Object.entries(params).map(([key,value])=>[key,String(value)]))});
+frontend.DRIVE_CHUNK_SIZE=DRIVE_CHUNK_SIZE;
+const downloaded=await frontend.readDriveBytes(read);
+assert.ok(largeModel.equals(Buffer.from(downloaded)));
+assert.equal(get({id:largeFile.id,offset:'1'}).ok,false);
+console.log('50 MiB upload and complete Range download, 3MF path, invalid offset, wrong owner and excess size passed.');

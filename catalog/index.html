@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=stl-units-1"></script>
+  <script type="module" src="script.js?v=large-models-1"></script>
 <link rel="stylesheet" href="../site-header.css?v=1">
 <script src="../site-header.js?v=1" defer></script>
 </head>
@@ -64,7 +64,7 @@
     <section id="public-catalog" aria-labelledby="catalog-title">
       <div class="catalog-heading">
         <h1 id="catalog-title">Каталог <em>3D-моделей</em></h1>
-        <p>Откройте модель в 3D, скачайте STL или закажите печать. Для своей модели выберите фото или создайте 3D-обложку из STL.</p>
+        <p>Откройте модель в 3D, скачайте STL или 3MF или закажите печать. Для своей модели выберите фото или создайте 3D-обложку из модели.</p>
       </div>
       <div class="library-toolbar">
         <button class="catalog-card-button library-add" type="button" id="open-add-model" aria-haspopup="dialog">Добавить модель</button>
@@ -141,11 +141,11 @@
       </div>
       <section id="drive-import-panel" class="social-block" hidden aria-labelledby="drive-import-title">
         <h2 id="drive-import-title">Импортировать с Google Диска</h2>
-        <p>Инструмент модератора. Новые STL из папки мастерской появятся в общем каталоге с автоматическими обложками. Уже добавленные файлы будут пропущены.</p>
+        <p>Инструмент модератора. Новые STL и 3MF из папки мастерской появятся в общем каталоге с автоматическими обложками. Уже добавленные файлы будут пропущены.</p>
         <form id="drive-import-form">
           <label for="drive-import-metadata">Названия и описания — JSON (необязательно)</label>
           <textarea id="drive-import-metadata" rows="5" maxlength="1000000" aria-describedby="drive-import-help" placeholder='[{"fileName":"vase.stl","title":"Ваза","description":"Ваза для сухоцветов","category":"Для дома и быта"}]'></textarea>
-          <p id="drive-import-help">Массив объектов с полями fileName, title, description, category. Имя файла должно совпадать полностью. Без JSON название берётся из имени STL, категория — «Другое».</p>
+          <p id="drive-import-help">Массив объектов с полями fileName, title, description, category. Имя файла должно совпадать полностью. Без JSON название берётся из имени файла, категория — «Другое».</p>
           <div class="account-actions"><button id="drive-import-start" class="catalog-card-button library-add" type="submit">Импортировать с Google Диска</button><button id="drive-import-stop" class="catalog-card-button" type="button" hidden>Остановить импорт</button></div>
         </form>
         <progress id="drive-import-progress" max="1" value="0" aria-label="Прогресс импорта" hidden></progress>
@@ -212,8 +212,8 @@
       <button class="model-close" id="close-add-model" type="button" aria-label="Закрыть добавление модели">×</button>
     </header>
     <form id="add-model-form" class="add-model-form">
-      <div id="editor-file-fields"><label for="library-file">Файл STL, до 20 МБ</label>
-      <input id="library-file" name="file" type="file" accept=".stl,model/stl" required autofocus></div>
+      <div id="editor-file-fields"><label for="library-file">Файл STL или 3MF, до 50 МБ</label>
+      <input id="library-file" name="file" type="file" accept=".stl,.3mf,model/stl,model/3mf,application/vnd.ms-package.3dmanufacturing-3dmodel+xml" required autofocus></div>
       <label for="library-title">Название</label>
       <input id="library-title" name="title" type="text" maxlength="100" required>
       <label for="library-description">Описание (необязательно)</label>
@@ -251,7 +251,7 @@
         <label for="library-photo">Своё фото для обложки</label>
         <p id="library-photo-help">Необязательно. JPG, PNG или WebP до 10 МБ.</p>
         <input id="library-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-describedby="library-photo-help">
-        <button id="use-stl-cover" class="catalog-card-button" type="button" hidden>Создать обложку из STL</button>
+        <button id="use-stl-cover" class="catalog-card-button" type="button" hidden>Создать обложку из модели</button>
       </div>
       <fieldset id="model-media-fields" class="model-media-fields">
         <legend>Фото и GIF модели</legend>
@@ -280,7 +280,7 @@
           <option value="m">Метры (Blender, ×1000)</option>
           <option value="in">Дюймы (×25,4)</option>
         </select>
-        <button id="recalculate-stl" class="catalog-card-button" type="button">Пересчитать габариты и вес из STL</button>
+        <button id="recalculate-stl" class="catalog-card-button" type="button">Пересчитать габариты и вес</button>
         <div id="upload-specs" class="model-specs"></div>
       </fieldset>
       <p id="add-model-status" class="library-status" role="status"></p>
@@ -295,7 +295,7 @@
     <legend>Витрина и скачивание</legend>
     <label class="showcase-checkbox"><input name="is_featured" type="checkbox"> Показывать на витрине (в начале каталога)</label>
     <label>Приоритет (1, 2, 3…) <input name="featured_rank" type="number" min="1" max="2147483647" step="1" value="100" required></label>
-    <label class="showcase-checkbox"><input name="allow_download" type="checkbox" checked> Разрешить скачивание STL-файла</label>
+    <label class="showcase-checkbox"><input name="allow_download" type="checkbox" checked> Разрешить скачивание файла модели</label>
   </template>
   <dialog id="print-dialog" class="model-dialog add-model-dialog" aria-labelledby="print-heading">
     <header class="model-header"><div><h2 id="print-heading">Параметры печати</h2><p id="print-title"></p></div><button id="print-close" class="model-close" type="button" aria-label="Закрыть параметры печати">×</button></header>
@@ -329,7 +329,7 @@
     <form id="bulk-form" class="add-model-form">
       <fieldset id="bulk-palette" class="model-palette"><legend>Цвет моделей в этой партии</legend></fieldset>
       <img id="bulk-cover-preview" class="library-cover" width="640" height="500" alt="Предпросмотр первой модели партии" hidden>
-      <label for="bulk-files">STL-файлы, до 50 файлов по 20 МБ</label><input id="bulk-files" type="file" accept=".stl,model/stl" multiple required>
+      <label for="bulk-files">STL и 3MF, до 50 файлов по 50 МБ</label><input id="bulk-files" type="file" accept=".stl,.3mf,model/stl,model/3mf,application/vnd.ms-package.3dmanufacturing-3dmodel+xml" multiple required>
       <label for="bulk-category">Общая категория</label><select id="bulk-category"></select>
       <p>Загружаются модели, которыми вы вправе делиться. Название берётся из имени файла.</p>
       <progress id="bulk-progress" value="0" max="1" hidden></progress><p id="bulk-status" class="library-status" role="status"></p><ul id="bulk-errors"></ul>
