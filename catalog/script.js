@@ -257,22 +257,27 @@ async function removeAsset(path) {
     if (error) throw error;
   }
 }
-async function webpCover(blob) {
+async function webpCover(blob, preservePhotoRatio = false) {
   const url = URL.createObjectURL(blob);
   try {
     const image = new Image();
     image.src = url;
     await image.decode();
     const canvas = document.createElement('canvas');
-    canvas.width = COVER_WIDTH;
-    canvas.height = COVER_HEIGHT;
+    // Photographs retain their full frame for the gallery. Only the card crops them.
+    const scale = Math.min(
+      COVER_WIDTH / image.naturalWidth,
+      COVER_HEIGHT / image.naturalHeight,
+      1
+    );
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    canvas.width = preservePhotoRatio ? width : COVER_WIDTH;
+    canvas.height = preservePhotoRatio ? height : COVER_HEIGHT;
     const context = canvas.getContext('2d');
     context.fillStyle = '#20221d';
     context.fillRect(0, 0, canvas.width, canvas.height);
-    // Preserve the complete model/photo rather than cropping it.
-    const scale = Math.min(canvas.width / image.naturalWidth, canvas.height / image.naturalHeight);
-    const w = image.naturalWidth * scale, h = image.naturalHeight * scale;
-    context.drawImage(image, (canvas.width-w)/2, (canvas.height-h)/2, w, h);
+    context.drawImage(image, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
     const result = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', .82));
     if (!result || result.type !== 'image/webp') throw new Error('Браузер не поддерживает сохранение WebP. Обновите браузер.');
     return result;
@@ -1852,7 +1857,7 @@ async function renderEditorCover() {
     showSpecs(byId('upload-specs'), selection.metrics || editing?.geometry_metrics);
     const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
     if (photo) selection.color = editorPalette.value;
-    draft = { ...selection, cover, png: new Blob([bytes], { type: 'image/png' }) };
+    draft = { ...selection, cover, preservePhotoRatio: Boolean(photo), png: new Blob([bytes], { type: 'image/png' }) };
     coverImage.src = cover;
     coverImage.hidden = false;
     coverDownload.href = URL.createObjectURL(draft.png);
@@ -2019,7 +2024,7 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
       payload.cover_path = prefix + '.webp';
       payload.cover_azimuth = selection.azimuth;
       payload.cover_elevation = selection.elevation;
-      await upload(payload.cover_path, await webpCover(selection.png), 'image/webp');
+      await upload(payload.cover_path, await webpCover(selection.png, selection.preservePhotoRatio), 'image/webp');
     }
   } catch (error) {
     await cleanup([...uploaded, ...(drivePath ? [drivePath] : [])]);
