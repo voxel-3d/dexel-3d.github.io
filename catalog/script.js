@@ -1,3 +1,4 @@
+import { BUCKET, loadSupabase, publishedModels, SUPABASE_URL, SUPABASE_ANON_KEY } from './catalog-data.js?v=1';
 import { DEFAULT_COLOR, mountPalette, normalizeColor } from './palette.js?v=1';
 import { initPrintOrder } from './print-order.js?v=2';
 import { initModelGallery } from './gallery.js?v=palette-1';
@@ -6,10 +7,6 @@ const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4u
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
 import { initSocial } from './social.js?v=makes-delete-1';
-
-// Use the project URL and a public publishable (or legacy anon) key from Supabase.
-const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_zXO4GY-2ou6HpvEWzeaO9Q_XT7uJkDg';
 
 const INFILL = 0.25;
 const DENSITY_G_CM3 = 1.25;
@@ -20,34 +17,6 @@ const CATEGORIES = [
   'Игрушки и игры', 'Фигурки и миниатюры', 'Косплей и реквизит',
   'Сад и огород', 'Спорт и туризм', 'Для животных', 'Обучение и наука',
   'Прототипы и макеты', 'Другое'
-];
-
-// Add public STL entries here. Version the file URL when replacing an existing STL.
-const publishedModels = [
-  {
-    id: 'ribbed-vase', category: 'Для дома и быта',
-    fileUrl: 'assets/ribbed-vase.stl',
-    title: 'Рельефная ваза',
-    description: 'Мягкий силуэт и ритм вертикальных рёбер для сухоцветов.',
-    color: '#a87a55',
-    placeholder: 'assets/ribbed-vase.webp'
-  },
-  {
-    id: 'phone-stand', category: 'Органайзеры',
-    fileUrl: 'assets/phone-stand.stl',
-    title: 'Подставка для телефона',
-    description: 'Наклонная опора с нижним упором для рабочего стола.',
-    color: '#426487',
-    placeholder: 'assets/phone-stand.webp'
-  },
-  {
-    id: 'hex-organizer', category: 'Органайзеры',
-    fileUrl: 'assets/hex-organizer.stl',
-    title: 'Шестигранный органайзер',
-    description: 'Открытый лоток для ключей, крепежа и мелочей.',
-    color: '#677047',
-    placeholder: 'assets/hex-organizer.webp'
-  }
 ];
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
@@ -1097,7 +1066,6 @@ dialog.addEventListener('close', () => {
   enableActions(false);
 });
 
-const BUCKET = 'stl-models';
 const PAGE_SIZE = 24;
 const number = new Intl.NumberFormat('ru-RU');
 const accountLink = byId('account-link');
@@ -1475,7 +1443,7 @@ byId('sign-out').addEventListener('click', async () => {
 async function initCloud() {
   if (!SUPABASE_URL.trim() || !SUPABASE_ANON_KEY.trim()) return;
   try {
-    const { createClient } = await import('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.119.2/+esm');
+    const { createClient } = await loadSupabase();
     supabase = createClient(SUPABASE_URL.trim(), SUPABASE_ANON_KEY.trim(), {
       auth: { storageKey: 'dexel-library-session' },
       global: {
