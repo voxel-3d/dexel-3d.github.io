@@ -1,4 +1,5 @@
-import { BUCKET, loadSupabase, publishedModels, SUPABASE_URL, SUPABASE_ANON_KEY } from './catalog/catalog-data.js?v=1';
+import { getPublicSupabase } from './supabase-public.js?v=1';
+import { BUCKET, publishedModels } from './catalog/catalog-data.js?v=1';
 
 const LIMIT = 4;
 const grid = document.getElementById('home-catalog-grid');
@@ -56,10 +57,7 @@ function render(models) {
 }
 
 async function refresh() {
-  const { createClient } = await loadSupabase();
-  const client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
-  });
+  const client = await getPublicSupabase();
   const signal = AbortSignal.timeout(6000);
   const models = () => client.from('models').select('*').eq('deleting', false);
   const featured = models().eq('is_featured', true).order('featured_rank')

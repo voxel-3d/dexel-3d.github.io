@@ -23,6 +23,7 @@ function apiUrl(route,params={}){
 let selectedDelivery=null;
 let calculatorApplied=false;
 let calculatedItemsTotal=null;
+let appliedOrderEstimate=null;
 let paymentMode=50;
 
 const filters=document.querySelectorAll('#works [data-filter]');
@@ -86,6 +87,7 @@ function isValidOrderContact(value){
   return digits.length>=7&&digits.length<=15&&/^\+?[\d\s().-]+$/.test(contact);
 }
 const briefForm=document.getElementById('brief-form');
+const orderMaterial=document.getElementById('order-material');
 const catalogOrder = /^#request\?(.+)$/.exec(window.location.hash);
 if (catalogOrder) {
   const params = new URLSearchParams(catalogOrder[1]);
@@ -107,7 +109,10 @@ if (catalogOrder) {
     } catch { /* A locally stored model has no public link. */ }
     const material = value('material', 4);
     const strength = value('strength', 80);
-    if (['PETG', 'PLA', 'ABS'].includes(material)) lines.push('Материал: ' + material);
+    if (['PETG', 'PLA', 'ABS'].includes(material)) {
+      orderMaterial.value = material;
+      lines.push('Материал: ' + material);
+    }
     if (color) {
       briefForm.elements.namedItem('color').value = color;
       lines.push('Цвет: ' + color);
@@ -117,7 +122,10 @@ if (catalogOrder) {
       briefForm.elements.namedItem('qty').value = quantity;
       lines.push('Тираж: ' + quantity + ' шт.');
     }
-    if (Number.isSafeInteger(estimate) && estimate > 0) lines.push('Ориентир за тираж: ' + estimate + ' ₽');
+    if (Number.isSafeInteger(estimate) && estimate > 0 && estimate <= 2147483647) {
+      lines.push('Ориентир за тираж: ' + estimate + ' ₽');
+      appliedOrderEstimate = { item: briefForm.elements.namedItem('type').value, quantity: Number(briefForm.elements.namedItem('qty').value), material: orderMaterial.value, total: estimate };
+    }
     details.value = lines.join('\n');
   }
   history.replaceState(history.state, '', '#request');
@@ -192,6 +200,7 @@ briefForm.addEventListener('voxel:prepare-stl',event=>{
     document.getElementById('color').value=prepared.colorName.trim();
   }
   modelSummary=summary;
+  appliedOrderEstimate=null;
   if(packageSpecs)applyModelEstimate(prepared,packageSpecs);
   details.setCustomValidity('');
   const orderType=document.getElementById('type');
@@ -270,6 +279,19 @@ briefForm.addEventListener('submit',async event=>{
   const description=String(formData.get('details')||'').trim();
   const contact=String(formData.get('contact')||'').trim();
   const modelFile=attachedModel;
+  const material=String(formData.get('material')||'PETG');
+  const estimate=appliedOrderEstimate;
+  const orderRecord={
+    source:'website',
+    customer_name:String(formData.get('customer_name')||'').trim(),
+    customer_contact:contact,
+    items_summary:['Изделие: '+item,'Количество: '+quantity+' шт.',color&&'Цвет: '+color,description].filter(Boolean).join('\n'),
+    material,
+    delivery_service:'cdek',
+    delivery_address:[selectedDelivery?.city||cdekCity.value.trim(), selectedDelivery?.pvz||cdekDeliveryPoint.value.trim()]
+      .filter(Boolean).join(', '),
+    total_price:estimate?.item===item&&estimate.quantity===quantity&&estimate.material===material ? estimate.total : 0
+  };
   if(modelFile&&description.length>1800){
     detailsField.setCustomValidity('Сократите описание до 1800 символов, чтобы добавить ссылку на STL.');
     detailsField.reportValidity();
@@ -327,6 +349,10 @@ briefForm.addEventListener('submit',async event=>{
     if(!response.ok||data.ok!==true){
       throw new Error(data.error||'Сервер не подтвердил отправку заявки. Попробуйте ещё раз.');
     }
+    // The confirmed notification remains the primary submission result.
+    void import('./order-storage.js?v=1')
+      .then(({saveWebsiteOrder})=>saveWebsiteOrder(orderRecord))
+      .catch(error=>console.error('Не удалось подключить запись заявки в Supabase.',error?.name));
     reachMetrikaGoal('order_submit');
     orderStatus.textContent='Заявка отправлена! Мы получили её на почту и скоро свяжемся с вами.';
     orderStatus.className='form-note order-status is-success';
@@ -458,6 +484,8 @@ calcOrderLink.addEventListener('click',event=>{
   const line=[estimateLine,personalizationLine()].filter(Boolean).join('\n');
   if(!appendOrderDetails(line,calculatorSummary)){event.preventDefault();return}
   calculatorSummary=line;
+  orderMaterial.value=calcMaterial.selectedOptions[0].dataset.material;
+  appliedOrderEstimate={item:typeSelect.value,quantity,material:orderMaterial.value,total:itemsTotal};
   calculatorApplied=true;
   calculatedItemsTotal=startsFrom?null:itemsTotal;
   const paymentAmountField=document.getElementById('payment-amount');
@@ -543,7 +571,10 @@ function applyModelEstimate(model,specs){
   const custom=Array.from(calcProduct.options).find(option=>option.dataset.minimum==='true');
   calcProduct.value=custom.value;
   const plastic=Array.from(calcMaterial.options).find(option=>option.dataset.material===model.material);
-  if(plastic)calcMaterial.value=plastic.value;
+  if(plastic){
+    calcMaterial.value=plastic.value;
+    orderMaterial.value=model.material;
+  }
   calcDimensionInputs.forEach((input,index)=>{
     input.value=String(Math.max(0.1,Math.round(model.sizeMm[index])/10));
   });
