@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=cover-fit-1"></script>
+  <script type="module" src="script.js?v=stl-units-1"></script>
 <link rel="stylesheet" href="../site-header.css?v=1">
 <script src="../site-header.js?v=1" defer></script>
 </head>
@@ -271,7 +271,18 @@
         <input id="cover-elevation" type="range" min="0" max="85" value="30" step="5">
       </fieldset>
       <img id="library-cover" class="library-cover" width="640" height="500" alt="Предпросмотр обложки модели" hidden>
-      <div id="upload-specs" class="model-specs"></div>
+      <fieldset class="model-media-fields">
+        <legend>Размер модели</legend>
+        <label for="stl-units">Единицы измерения в файле</label>
+        <select id="stl-units">
+          <option value="auto">Авто (меньше 2 → метры)</option>
+          <option value="mm">Миллиметры (стандарт, ×1)</option>
+          <option value="m">Метры (Blender, ×1000)</option>
+          <option value="in">Дюймы (×25,4)</option>
+        </select>
+        <button id="recalculate-stl" class="catalog-card-button" type="button">Пересчитать габариты и вес из STL</button>
+        <div id="upload-specs" class="model-specs"></div>
+      </fieldset>
       <p id="add-model-status" class="library-status" role="status"></p>
       <div class="add-model-actions">
         <button class="button" type="submit" disabled>Добавить в каталог</button>

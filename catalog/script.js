@@ -1,3 +1,4 @@
+import { millimetresPerUnit, normalizeStoredMetrics, scaleSTLMetrics, unitMode } from './stl-units.js?v=1';
 import { BUCKET, loadSupabase, publishedModels, SUPABASE_URL, SUPABASE_ANON_KEY } from './catalog-data.js?v=1';
 import { DEFAULT_COLOR, mountPalette, normalizeColor } from './palette.js?v=1';
 import { initPrintOrder } from './print-order.js?v=2';
@@ -96,8 +97,8 @@ function modelDirection(THREE, azimuth = 45, elevation = 40) {
   return new THREE.Vector3(Math.cos(pitch) * Math.sin(yaw), Math.sin(pitch), Math.cos(pitch) * Math.cos(yaw));
 }
 
-// Signed tetrahedra in the original STL coordinate system (Z up, millimetres).
-function measureGeometry(geometry) {
+// Signed tetrahedra in the original STL coordinate system (Z up).
+function measureGeometry(geometry, mode = 'auto') {
   geometry.computeBoundingBox();
   const { min, max } = geometry.boundingBox;
   const positions = geometry.getAttribute('position');
@@ -121,7 +122,7 @@ function measureGeometry(geometry) {
   }
   // Nonzero net surface normal is evidence of a hole or inconsistent triangle winding.
   const volume = Math.hypot(netX, netY, netZ) <= area * 1e-6 ? Math.abs(sixVolume) / 6000 : null;
-  return { width: max.x - min.x, depth: max.y - min.y, height: max.z - min.z, volume };
+  return scaleSTLMetrics({ width: max.x - min.x, depth: max.y - min.y, height: max.z - min.z, volume }, mode);
 }
 
 function validMetrics(metrics) {
@@ -150,10 +151,9 @@ function showSpecs(container, metrics) {
 async function readMetrics(entry) {
   if (entry.coverTask) await entry.coverTask;
   if (validMetrics(entry.metrics)) return entry.metrics;
-  if (entry.file && localMeasurements.has(entry.file)) {
-    entry.metrics = localMeasurements.get(entry.file);
-    return entry.metrics;
-  }
+  const mode = unitMode(entry.stlUnitMode);
+  const cached = entry.file && localMeasurements.get(entry.file)?.get(mode);
+  if (cached) return (entry.metrics = cached);
   const [THREE, { STLLoader }] = await getSTLModules();
   const mesh = await loadSTL(THREE, STLLoader, entry);
   disposeModel(mesh);
@@ -333,9 +333,15 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
     geometry.computeBoundingSphere();
     const { center, radius } = geometry.boundingSphere;
     if (!Number.isFinite(radius) || radius <= 0) throw new Error();
-    originalRadius = radius;
-    entry.metrics = measureGeometry(geometry);
-    if (entry.file) localMeasurements.set(entry.file, entry.metrics);
+    const mode = unitMode(entry.stlUnitMode ?? entry.metrics?.unitMode);
+    entry.metrics = measureGeometry(geometry, mode);
+    if (!validMetrics(entry.metrics)) throw new Error();
+    originalRadius = radius * millimetresPerUnit(entry.metrics.stlUnit);
+    if (entry.file) {
+      const cached = localMeasurements.get(entry.file) ?? new Map();
+      cached.set(mode, entry.metrics);
+      localMeasurements.set(entry.file, cached);
+    }
     geometry.translate(-center.x, -center.y, -center.z);
     geometry.scale(1 / radius, 1 / radius, 1 / radius);
     // STL is Z-up. Three.js is Y-up.
@@ -1153,7 +1159,7 @@ function cloudFile(path, download) {
 function publicEntry(row) {
   return {
     id: row.id, title: row.title, description: row.description, category: row.category,
-    createdAt: Date.parse(row.created_at), metrics: row.geometry_metrics,
+    createdAt: Date.parse(row.created_at), metrics: normalizeStoredMetrics(row.geometry_metrics),
     color: normalizeColor(row.cover_color), driveId: driveFileId(row.stl_path),
     fileUrl: driveFileId(row.stl_path) ? undefined : cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
   };
@@ -1184,6 +1190,7 @@ async function refreshBuiltinModels(version) {
       const image = cards.get(entry)?.querySelector('img');
       if (image) image.src = original.cover;
     });
+    if (row?.geometry_metrics) entry.metrics = normalizeStoredMetrics(row.geometry_metrics);
     if (row?.cover_color) entry.color = normalizeColor(row.cover_color);
     if (row?.studio_cover_path) {
       entry.cover = supabase.storage.from('model-media').getPublicUrl(row.studio_cover_path).data.publicUrl;
@@ -1687,6 +1694,70 @@ let draft;
 let pendingDeletion;
 let saving = false;
 let previewRevision = 0;
+let recalculatedMetrics;
+const unitsInput = byId('stl-units');
+const recalculateButton = byId('recalculate-stl');
+
+function editorSTL() {
+  const file = fileInput.files[0];
+  const driveId = !file && editing ? driveFileId(editing.stl_path) : undefined;
+  return {
+    file,
+    driveId,
+    fileUrl: !file && editing && !driveId
+      ? (editing.builtin ? editing.fileUrl : cloudFile(editing.stl_path)) : undefined,
+    color: editorPalette.value,
+    stlUnitMode: unitsInput.value
+  };
+}
+
+function showEditorMetrics(metrics) {
+  const container = byId('upload-specs');
+  showSpecs(container, metrics);
+  if (metrics?.unitMode === 'auto' && metrics.stlUnit === 'm') {
+    const hint = document.createElement('span');
+    hint.textContent = 'Авто: определены метры, применён масштаб ×1000.';
+    container.append(hint);
+  }
+}
+
+async function recalculateEditorSTL() {
+  if (saving) return;
+  const stl = editorSTL();
+  if (!stl.file && !editing) {
+    note(addStatus, 'Сначала выберите файл STL.', true);
+    return;
+  }
+  // A new file without a ready preview must still go through cover generation.
+  if (stl.file && draft?.file !== stl.file) {
+    await renderEditorCover();
+    return;
+  }
+
+  const revision = ++previewRevision;
+  const model = editing;
+  recalculatedMetrics = undefined;
+  addButton.disabled = true;
+  note(addStatus, 'Пересчитываем габариты и вес из STL…');
+  try {
+    const metrics = await readMetrics(stl);
+    if (revision !== previewRevision || !addDialog.open || editing !== model) return;
+    recalculatedMetrics = metrics;
+    if (draft) draft.metrics = metrics;
+    showEditorMetrics(metrics);
+    addButton.disabled = !stl.file && !editing;
+    note(addStatus, 'Габариты и вес пересчитаны. Сохраните модель, чтобы применить изменения.');
+  } catch (error) {
+    if (revision !== previewRevision || !addDialog.open || editing !== model) return;
+    showEditorMetrics();
+    note(addStatus, error.message || 'Не удалось пересчитать STL.', true);
+  }
+}
+
+recalculateButton.addEventListener('click', () => void recalculateEditorSTL());
+unitsInput.addEventListener('change', () => {
+  if (editing || fileInput.files.length) void recalculateEditorSTL();
+});
 
 function setAngleReadouts() {
   byId('cover-azimuth-value').textContent = azimuthInput.value + '°';
@@ -1696,6 +1767,7 @@ function setAngleReadouts() {
 function clearEditorPreview() {
   previewRevision++;
   draft = undefined;
+  recalculatedMetrics = undefined;
   byId('upload-specs').replaceChildren();
   coverImage.hidden = true;
   coverImage.removeAttribute('src');
@@ -1750,6 +1822,7 @@ function openEditor(row) {
   if (row && (row.builtin || row.user_id !== user?.id) && !isModerator()) return;
   editing = row;
   addForm.reset();
+  unitsInput.value = unitMode(row?.geometry_metrics?.unitMode);
   modelGallery.reset(row);
   editorPalette.set(row?.cover_color ?? row?.color);
   recapture.hidden = !row;
@@ -1776,7 +1849,7 @@ function openEditor(row) {
     byId('library-original-author').value = row.original_author ?? '';
     byId('library-source').value = row.source_url ?? '';
     byId('library-category').value = categoryOf(row);
-    showSpecs(byId('upload-specs'), row.geometry_metrics);
+    showEditorMetrics(normalizeStoredMetrics(row.geometry_metrics));
     byId('library-tags').value = row.tags.join(', ');
     azimuthInput.value = row.cover_azimuth;
     elevationInput.value = row.cover_elevation;
@@ -1839,11 +1912,7 @@ async function renderEditorCover() {
 
   const version = previewRevision;
   const selection = {
-    file,
-    driveId: !file && editing ? driveFileId(editing.stl_path) : undefined,
-    fileUrl: !file && editing && !driveFileId(editing.stl_path)
-      ? (editing.builtin ? editing.fileUrl : cloudFile(editing.stl_path)) : undefined,
-    color: editorPalette.value,
+    ...editorSTL(),
     azimuth: Number(azimuthInput.value),
     elevation: Number(elevationInput.value)
   };
@@ -1852,9 +1921,10 @@ async function renderEditorCover() {
   try {
     const cover = photo ? await photoCover(photo) : await queueCover(selection, active);
     if (!active()) return;
-    if (photo && file) selection.metrics = await readMetrics(selection);
+    if (photo && (file || editing)) selection.metrics = await readMetrics(selection);
     if (!active()) return;
-    showSpecs(byId('upload-specs'), selection.metrics || editing?.geometry_metrics);
+    recalculatedMetrics = selection.metrics;
+    showEditorMetrics(selection.metrics);
     const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
     if (photo) selection.color = editorPalette.value;
     draft = { ...selection, cover, preservePhotoRatio: Boolean(photo), png: new Blob([bytes], { type: 'image/png' }) };
@@ -1868,7 +1938,7 @@ async function renderEditorCover() {
     note(addStatus, addButton.disabled ? 'Фото готово. Добавьте STL-файл модели.' : 'Обложка готова.');
   } catch (error) {
     if (active()) {
-      showSpecs(byId('upload-specs'), selection.metrics);
+      showEditorMetrics(selection.metrics);
       note(addStatus, error instanceof Error ? error.message : 'Не удалось создать обложку.', true);
     }
   }
@@ -1892,7 +1962,9 @@ fileInput.addEventListener('change', () => {
   if (fileInput.files.length || photoInput.files.length || !editing) renderEditorCover();
   else {
     clearEditorPreview();
+    unitsInput.value = unitMode(editing.geometry_metrics?.unitMode);
     showExistingCover();
+    showEditorMetrics(normalizeStoredMetrics(editing.geometry_metrics));
     note(addStatus, '');
   }
 });
@@ -1928,6 +2000,7 @@ async function saveBuiltinModel(entry, fields, settings, selection) {
     ...settings, owner_id: owner, media_namespace: namespace, revision,
     media_paths: media?.paths ?? previous?.media_paths ?? []
   };
+  if (fields.geometry_metrics) payload.geometry_metrics = fields.geometry_metrics;
   if ('original_author' in fields) {
     payload.original_author = fields.original_author;
     payload.source_url = fields.source_url;
@@ -2043,7 +2116,7 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
       return change.select('*').maybeSingle();
     };
     let { data, error } = await write();
-    if (error?.code === 'PGRST204' && error.message.includes('geometry_metrics') && 'geometry_metrics' in payload) {
+    if (!fields.geometry_metrics && error?.code === 'PGRST204' && error.message.includes('geometry_metrics') && 'geometry_metrics' in payload) {
       // Existing installations can still publish before the optional migration runs.
       delete payload.geometry_metrics;
       ({ data, error } = await write());
@@ -2118,6 +2191,7 @@ addForm.addEventListener('submit', async event => {
     fields.original_author = author || null;
     fields.source_url = safeSource;
   }
+  if (recalculatedMetrics && (editing || recalculatedMetrics.unitMode !== 'auto')) fields.geometry_metrics = recalculatedMetrics;
   const settings = readShowcaseFields(editorShowcase);
   if (!supabase || editing?.is_featured !== undefined || settings.is_featured ||
       settings.featured_rank !== 100 || !settings.allow_download) Object.assign(fields, settings);
@@ -2144,12 +2218,17 @@ addForm.addEventListener('submit', async event => {
   }
   saving = true;
   if (!publicCountFields.hidden) publicCountFields.disabled = true;
-  const editorControls = [byId('model-attribution-fields'), editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
+  const editorControls = [unitsInput, recalculateButton, byId('model-attribution-fields'), editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
   addButton.disabled = true;
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
     if (supabase) {
+      if (fields.geometry_metrics) {
+        const table = editing?.builtin ? 'catalog_builtin_models' : 'models';
+        const {error} = await supabase.from(table).select('geometry_metrics').limit(0);
+        if (error) throw new Error('Для сохранения габаритов выполните catalog/model-geometry.sql в Supabase.');
+      }
       if ('views_count' in fields || 'downloads_count' in fields) {
         const { error } = await supabase.from('models').select('real_views_count,real_downloads_count').limit(0);
         if (error) throw new Error('Для настройки публичных счётчиков выполните catalog/live-activity.sql в Supabase.');
@@ -2301,7 +2380,10 @@ for (const model of publishedModels) {
 }
 renderCatalog();
 const localReady = libraryTransaction('readonly', store => store.getAll()).then(models => {
-  for (const model of models) entries.set(model.id, model);
+  for (const model of models) {
+    model.metrics = normalizeStoredMetrics(model.metrics);
+    entries.set(model.id, model);
+  }
   renderCatalog();
   if (activeModel) showRelated(activeModel);
 }).catch(() => {});
