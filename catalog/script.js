@@ -1124,7 +1124,9 @@ function renderCatalog(reset = false) {
     for (const card of grid.children) if (!visible.includes(card)) measureVisible.unobserve(card);
     grid.replaceChildren(...visible);
   }
-  byId('catalog-empty').hidden = listing || matches.length !== 0;
+  const empty = byId('catalog-empty');
+  empty.hidden = listing || matches.length !== 0;
+  empty.textContent = empty.hidden ? '' : 'Модели не найдены. Измените запрос или категорию.';
   catalogMore.hidden = !catalogFailed && matches.length <= visibleLimit;
 }
 
@@ -1194,6 +1196,7 @@ const pendingEvents = new Map();
 
 function note(element, message, error = false) {
   element.textContent = message;
+  if (element === libraryStatus) element.hidden = !message;
   element.toggleAttribute('data-error', error);
 }
 

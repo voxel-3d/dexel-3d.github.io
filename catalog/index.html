@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=large-models-1"></script>
+  <script type="module" src="script.js?v=order-flow-1"></script>
 <link rel="stylesheet" href="../site-header.css?v=1">
 <script src="../site-header.js?v=1" defer></script>
 <link rel="stylesheet" href="../legal.css?v=1">
@@ -70,7 +70,7 @@
       </div>
       <div class="library-toolbar">
         <button class="catalog-card-button library-add" type="button" id="open-add-model" aria-haspopup="dialog">Добавить модель</button>
-        <p class="library-status" id="library-status" role="status"></p>
+        <p class="library-status" id="library-status" role="status" hidden></p>
       </div>
       <div class="catalog-filters" aria-label="Поиск и фильтры">
         <label>Поиск моделей<input id="model-search" type="search" placeholder="Название или описание"></label>
@@ -82,7 +82,7 @@
         <label class="download-filter"><input id="download-only" type="checkbox"> Только доступные для скачивания</label>
         <div id="category-filters" role="group" aria-label="Категории моделей"></div>
       </div>
-      <p id="catalog-empty" class="library-status" role="status" hidden>Модели не найдены. Измените запрос или категорию.</p>
+      <p id="catalog-empty" class="library-status" role="status" hidden></p>
       <p id="catalog-share-status" class="library-status" role="status"></p>
       <noscript><p class="catalog-noscript">Для каталога и автогенерации обложек включите JavaScript.</p></noscript>
       <section id="popular-authors" class="social-block" hidden><h2>Популярные авторы</h2><div id="authors-list"></div></section>
@@ -384,7 +384,7 @@
     </div>
     <div class="model-details">
       <div class="display-options">
-        <label><input id="printer-bed" type="checkbox" disabled> Показать стол принтера (260×260 мм)</label>
+        <label><input id="printer-bed" type="checkbox" disabled> Показать стол принтера (260 × 260 мм)</label>
         <label><input id="model-wireframe" type="checkbox" disabled> Сетка полигонов (Wireframe)</label>
       </div>
       <p id="viewer-model-meta"></p>

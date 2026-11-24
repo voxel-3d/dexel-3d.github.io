@@ -68,7 +68,14 @@ showMoreWorks.addEventListener('click',()=>{
 });
 renderPortfolio();
 const dialog=document.getElementById('lightbox');
-document.querySelectorAll('[data-image]').forEach(button=>button.addEventListener('click',()=>{const img=document.getElementById('large-image');img.src=button.dataset.image;img.alt=button.querySelector('.work-main-image').alt;document.getElementById('large-caption').textContent=button.dataset.title+(button.dataset.description?' — '+button.dataset.description:'');dialog.showModal()}));
+const portfolioOrder=document.getElementById('portfolio-order');
+let portfolioTitle='';
+portfolioOrder.addEventListener('click',()=>{
+  if(!appendOrderDetails('Запрос по образцу из портфолио: '+portfolioTitle))return;
+  dialog.close();
+  goToOrder();
+});
+document.querySelectorAll('[data-image]').forEach(button=>button.addEventListener('click',()=>{const img=document.getElementById('large-image');img.src=button.dataset.image;img.alt=button.querySelector('.work-main-image').alt;document.getElementById('large-caption').textContent=button.dataset.title+(button.dataset.description?' — '+button.dataset.description:'');portfolioTitle=button.dataset.title;portfolioOrder.hidden=!button.closest('#works-gallery')||!portfolioTitle;dialog.showModal()}));
 dialog.querySelector('.close').addEventListener('click',()=>dialog.close());dialog.addEventListener('click',e=>{if(e.target===dialog){const r=dialog.getBoundingClientRect();if(e.clientX<r.left||e.clientX>r.right||e.clientY<r.top||e.clientY>r.bottom)dialog.close()}});
 
 function isValidOrderContact(value){
@@ -127,7 +134,28 @@ const ORDER_MODEL_URL='https://voxel-3d-reviews-api.satinhyacinth.chatgpt.site/o
 const ORDER_MODEL_LIMIT=15*1024*1024;
 let attachedModel=null;
 let modelSummary='';
+let calculatorSummary='';
 let uploadedModel=null;
+
+function appendOrderDetails(line, previousLine){
+  const field=document.getElementById('details');
+  const current=field.value.trim();
+  const existing=previousLine ? current.replace(previousLine,'').trim() : current;
+  if(existing.split('\n').includes(line))return true;
+  const next=[existing,line].filter(Boolean).join('\n');
+  if(next.length>field.maxLength){
+    window.alert('В заявке не хватает места. Сократите описание и добавьте параметры повторно.');
+    return false;
+  }
+  field.value=next;
+  field.setCustomValidity('');
+  return true;
+}
+
+function goToOrder(){
+  document.getElementById('details').focus({preventScroll:true});
+  document.getElementById('request').scrollIntoView();
+}
 
 function removeOrderModel(){
   orderModelInput.value='';
@@ -147,7 +175,11 @@ briefForm.addEventListener('voxel:prepare-stl',event=>{
   const remaining=modelSummary&&previous.startsWith(modelSummary)
     ? previous.slice(modelSummary.length).trim()
     : previous;
-  const summary=prepared.summary;
+  const packageSpecs=modelPackage(prepared);
+  const packageLine=packageSpecs
+    ? '\nПосылка СДЭК с запасом на упаковку: '+packageSpecs.weight+' г, '+packageSpecs.sides.join(' × ')+' см.'
+    : '';
+  const summary=prepared.summary+packageLine;
   const next=[summary,remaining].filter(Boolean).join('\n\n');
   if(next.length>details.maxLength){
     prepared.error='В заявке не хватает места для параметров модели. Сократите описание и попробуйте снова.';
@@ -160,6 +192,7 @@ briefForm.addEventListener('voxel:prepare-stl',event=>{
     document.getElementById('color').value=prepared.colorName.trim();
   }
   modelSummary=summary;
+  if(packageSpecs)applyModelEstimate(prepared,packageSpecs);
   details.setCustomValidity('');
   const orderType=document.getElementById('type');
   if(orderType.value!=='Печать по моей модели'){
@@ -388,7 +421,7 @@ function updatePriceEstimate(){
   const option=calcProduct.selectedOptions[0];
   const startsFrom=option.dataset.minimum==='true';
   calcDimensions.hidden=!startsFrom;
-  calcMaterialWrap.hidden=startsFrom;
+  calcMaterialWrap.hidden=false;
   const dimensions=calcDimensionInputs.map(input=>Number(input.value));
   const dimensionsReady=dimensions.every(value=>Number.isFinite(value)&&value>0);
   const material=calcMaterial.selectedOptions[0];
@@ -396,7 +429,7 @@ function updatePriceEstimate(){
   const unitPrice=Math.round(Number(option.value)*factor);
   const total=unitPrice*quantity;
   calcTotal.textContent=(startsFrom?'от ':'')+rubles.format(total)+' ₽';
-  calcNote.textContent=startsFrom?(dimensionsReady?'Размер '+dimensions.map(rubles.format).join(' × ')+' см учтём при подготовке точной сметы. Цена указана от базовой и зависит от габаритов и сложности модели.':'Укажите длину, ширину и высоту, чтобы приложить размеры к заявке. Цена от 200 ₽ — ориентир; итог зависит от габаритов и сложности.'):'Расчёт: '+quantity+' × '+rubles.format(unitPrice)+' ₽ за '+option.dataset.priceUnit+' ('+material.dataset.material+', коэффициент ×'+Number(calcMaterial.value).toFixed(2)+'). Точную сумму подтвердим после согласования деталей.';
+  calcNote.textContent=startsFrom?(dimensionsReady?'Размер '+dimensions.map(value=>value.toLocaleString('ru-RU',{maximumFractionDigits:1})).join(' × ')+' см учтём при подготовке точной сметы. Цена указана от базовой и зависит от габаритов и сложности модели.':'Укажите длину, ширину и высоту, чтобы приложить размеры к заявке. Цена от 200 ₽ — ориентир; итог зависит от габаритов и сложности.'):'Расчёт: '+quantity+' × '+rubles.format(unitPrice)+' ₽ за '+option.dataset.priceUnit+' ('+material.dataset.material+', коэффициент ×'+Number(calcMaterial.value).toFixed(2)+'). Точную сумму подтвердим после согласования деталей.';
   calcOrderLink.removeAttribute('aria-disabled');
 }
 calcProduct.addEventListener('change',updatePriceEstimate);
@@ -413,16 +446,18 @@ calcOrderLink.addEventListener('click',event=>{
   const dimensions=calcDimensionInputs.map(input=>input.value.trim());
   if(startsFrom&&!dimensions.every(value=>Number(value)>0)){event.preventDefault();calcDimensionInputs.find(input=>!Number(input.value)||Number(input.value)<=0)?.focus();return}
   const typeSelect=document.getElementById('type');
-  const detailField=document.getElementById('details');
   typeSelect.value=option.dataset.requestType;
   document.getElementById('qty').value=String(quantity);
   const factor=startsFrom?1:Number(calcMaterial.value);
   const unitPrice=Math.round(Number(option.value)*factor);
   const itemsTotal=unitPrice*quantity;
   const amount=(startsFrom?'от ':'')+rubles.format(itemsTotal)+' ₽';
-  const materialText=startsFrom?'':', пластик '+calcMaterial.selectedOptions[0].dataset.material+' (коэффициент ×'+Number(factor).toFixed(2)+')';
+  const materialText=startsFrom?', пластик '+calcMaterial.selectedOptions[0].dataset.material:', пластик '+calcMaterial.selectedOptions[0].dataset.material+' (коэффициент ×'+Number(factor).toFixed(2)+')';
   const dimensionsText=startsFrom?', размеры '+dimensions.join(' × ')+' см':'';
-  detailField.value='Расчёт в калькуляторе: '+option.textContent.split(' — ')[0]+', количество '+quantity+materialText+dimensionsText+'; ориентир '+amount+'. Прошу подтвердить итоговую стоимость.';
+  const estimateLine='Расчёт в калькуляторе: '+option.textContent.split(' — ')[0]+', количество '+quantity+materialText+dimensionsText+'; ориентир '+amount+'. Прошу подтвердить итоговую стоимость.';
+  const line=[estimateLine,personalizationLine()].filter(Boolean).join('\n');
+  if(!appendOrderDetails(line,calculatorSummary)){event.preventDefault();return}
+  calculatorSummary=line;
   calculatorApplied=true;
   calculatedItemsTotal=startsFrom?null:itemsTotal;
   const paymentAmountField=document.getElementById('payment-amount');
@@ -434,7 +469,100 @@ calcOrderLink.addEventListener('click',event=>{
     syncPaymentSummary();
   }
 });
+const materialHints={
+  PETG:'Оптимальный выбор: прочный, не боится воды и солнца — подходит для шевронов, брелоков, авто и улицы.',
+  ABS:'Ударопрочный и термостойкий (до 100 °C) — для деталей под нагрузку и в салон автомобиля.',
+  PLA:'Максимальная детализация и гладкая поверхность — для фигурок, декора и подарков в помещении.'
+};
+for(const select of [calcMaterial,document.getElementById('stl-material')]){
+  const hint=document.getElementById(select.id+'-hint');
+  const update=()=>{hint.textContent=materialHints[select.selectedOptions[0]?.dataset.material||select.value]||''};
+  select.addEventListener('change',update);
+  update();
+}
+
+const personalizer=document.getElementById('personalizer');
+const personalText=document.getElementById('personal-text');
+const personalBase=document.getElementById('personal-base');
+const personalLetters=document.getElementById('personal-letters');
+const personalColors={
+  'Чёрный':'#19191b','Оливковый':'#556b2f','Койот':'#8b7355','Белый':'#f2f2f2',
+  'Золотой':'#d4af37','Красный':'#c92a2a','Синий ультрамарин':'#1b3f8b',
+  'Ярко-зелёный':'#2ecc40','Жёлтый':'#f5c518','Белый мрамор':'#e6e4df'
+};
+for(const select of [personalBase,personalLetters]){
+  for(const name of Object.keys(personalColors)){
+    const option=document.createElement('option');
+    option.value=name;
+    option.textContent=name;
+    select.append(option);
+  }
+}
+personalLetters.value='Белый';
+function updatePersonalizer(){
+  const kind=calcProduct.selectedOptions[0]?.dataset.requestType;
+  const keyring=kind==='Брелок';
+  personalizer.hidden=!keyring&&kind!=='Именной шеврон';
+  const shape=document.getElementById('personal-shape');
+  const preview=document.getElementById('personal-preview');
+  shape.setAttribute('rx',keyring?'30':'11');
+  if(keyring)shape.setAttribute('mask','url(#keyring-mask)');
+  else shape.removeAttribute('mask');
+  shape.setAttribute('fill',personalColors[personalBase.value]);
+  shape.setAttribute('stroke',personalColors[personalLetters.value]);
+  preview.setAttribute('x',keyring?'193':'180');
+  preview.setAttribute('fill',personalColors[personalLetters.value]);
+  preview.textContent=personalText.value.trim().slice(0,18)||'ВАША НАДПИСЬ';
+  // Long, wide glyphs still fit on small screens.
+  const maxWidth=keyring?250:300;
+  preview.removeAttribute('textLength');
+  if(preview.getComputedTextLength?.()>maxWidth)preview.setAttribute('textLength',String(maxWidth));
+}
+function personalizationLine(){
+  if(personalizer.hidden)return '';
+  const text=personalText.value.trim().slice(0,18);
+  return 'Персонализация: '+[text&&'надпись «'+text+'»','основа — '+personalBase.value,'буквы — '+personalLetters.value].filter(Boolean).join(', ')+'.';
+}
+calcProduct.addEventListener('change',updatePersonalizer);
+personalText.addEventListener('input',updatePersonalizer);
+personalBase.addEventListener('change',updatePersonalizer);
+personalLetters.addEventListener('change',updatePersonalizer);
+updatePersonalizer();
 updatePriceEstimate();
+
+function modelPackage({sizeMm,weightGrams}){
+  if(!Array.isArray(sizeMm)||sizeMm.length!==3||!sizeMm.every(side=>Number.isFinite(side)&&side>=0)||
+     !Number.isFinite(weightGrams)||weightGrams<0)return null;
+  return {
+    weight:Math.ceil(weightGrams+30),
+    sides:sizeMm.map(side=>Math.ceil(side/10+2))
+  };
+}
+
+function applyModelEstimate(model,specs){
+  const custom=Array.from(calcProduct.options).find(option=>option.dataset.minimum==='true');
+  calcProduct.value=custom.value;
+  const plastic=Array.from(calcMaterial.options).find(option=>option.dataset.material===model.material);
+  if(plastic)calcMaterial.value=plastic.value;
+  calcDimensionInputs.forEach((input,index)=>{
+    input.value=String(Math.max(0.1,Math.round(model.sizeMm[index])/10));
+  });
+  calcMaterial.dispatchEvent(new Event('change'));
+  updatePersonalizer();
+
+  const fields=['weight','length','width','height'].map(key=>document.getElementById('cdek-'+key));
+  const values=[specs.weight,...specs.sides];
+  const withinLimits=fields.every((input,index)=>values[index]<=Number(input.getAttribute('max')));
+  fields.forEach((input,index)=>{input.value=withinLimits?String(values[index]):''});
+  cdekRatesController?.abort();
+  cdekRates.hidden=true;
+  selectedDelivery=null;
+  refreshCalculatedPaymentTotal();
+  cdekStatus.textContent=withinLimits
+    ? 'Вес и размеры с запасом на упаковку подставлены. Выберите город и рассчитайте тариф.'
+    : 'Ориентировочные размеры или вес выходят за пределы калькулятора. Уточните упаковку у мастерской.';
+  document.getElementById('model-delivery-link').hidden=false;
+}
 
 const cdekForm=document.getElementById('cdek-form');
 const cdekCity=document.getElementById('cdek-city');

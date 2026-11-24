@@ -20,7 +20,7 @@ const infill = byId('stl-infill');
 const downloadButton = byId('stl-download');
 const orderButton = byId('stl-order');
 
-const BED = 250;
+const BED = 260;
 const MIN_SCALE = .1;
 const MAX_SCALE = 5;
 const MAX_INPUT_BYTES = 50 * 1024 * 1024;
@@ -423,6 +423,9 @@ async function exportModel(forOrder) {
       : factors.join(' × ') + '% (по осям X/Y/Z)';
     const detail = {
       file,
+      sizeMm: size,
+      weightGrams: weight,
+      material: material.value,
       colorName: color.selectedOptions[0]?.textContent.trim(),
       summary: '3D-модель: ' + file.name + '\nГабариты (X × Y × Z): ' + size.map(value => display.format(value)).join(' × ') +
         ' мм. Масштаб: ' + scaleText + '. Материал: ' + material.value + '. Заполнение: ' + infill.value +
