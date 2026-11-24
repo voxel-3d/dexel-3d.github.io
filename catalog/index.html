@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=drive-import">
+  <link rel="stylesheet" href="style.css?v=media-1">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=categories-optional-description"></script>
+  <script type="module" src="script.js?v=media-1"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -74,6 +74,7 @@
               <button class="favorite-button" type="button" aria-pressed="false">♡ Избранное <span>0</span></button>
               <a class="catalog-card-button open-model" aria-haspopup="dialog">Смотреть в 3D</a>
               <a class="catalog-card-button catalogue-download" download>Скачать STL</a>
+              <button class="catalog-card-button catalog-details" type="button" aria-haspopup="dialog">Подробнее · Фото и GIF</button>
               <button class="catalog-share" type="button">Поделиться</button>
               <a class="catalog-order">Заказать печать в DEXEL 3D</a>
             </div>
@@ -202,6 +203,14 @@
         <input id="library-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-describedby="library-photo-help">
         <button id="use-stl-cover" class="catalog-card-button" type="button" hidden>Создать обложку из STL</button>
       </div>
+      <fieldset id="model-media-fields" class="model-media-fields">
+        <legend>Фото и GIF модели</legend>
+        <label for="library-media">Добавить изображения (необязательно)</label>
+        <p id="library-media-help">До 8 файлов: JPG, PNG, WebP и GIF, до 10 МБ каждый. Можно добавлять несколькими выборами. Анимация GIF сохраняется.</p>
+        <input id="library-media" type="file" multiple accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif" aria-describedby="library-media-help">
+        <div id="media-editor-list" class="media-editor-list"></div>
+        <p id="media-editor-status" role="status"></p>
+      </fieldset>
       <fieldset id="cover-angle" class="cover-angle" hidden>
         <legend>Ракурс обложки</legend>
         <label for="cover-azimuth">Поворот <output for="cover-azimuth" id="cover-azimuth-value">35°</output></label>
@@ -217,6 +226,17 @@
         <a id="download-cover" class="catalog-card-button" download hidden>Скачать готовую обложку (PNG)</a>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="details-dialog" class="model-dialog details-dialog" aria-labelledby="details-title">
+    <header class="model-header"><h2 id="details-title"></h2><button id="details-close" class="model-close" type="button" aria-label="Закрыть подробности">×</button></header>
+    <div class="details-body">
+      <div class="details-stage"><img id="details-image" alt=""></div>
+      <div class="details-navigation"><button id="details-prev" type="button" aria-label="Предыдущее изображение">‹</button><span id="details-count" role="status"></span><button id="details-next" type="button" aria-label="Следующее изображение">›</button></div>
+      <div id="details-thumbs" class="details-thumbs" role="group" aria-label="Изображения модели"></div>
+      <p id="details-meta"></p><p id="details-description"></p><div id="details-specs" class="model-specs"></div>
+      <div class="account-actions"><button id="details-3d" class="catalog-card-button" type="button">Смотреть в 3D</button><a id="details-order" class="catalog-card-button library-add">Заказать печать</a></div>
+    </div>
   </dialog>
 
   <dialog id="bulk-dialog" class="model-dialog add-model-dialog" aria-labelledby="bulk-title">

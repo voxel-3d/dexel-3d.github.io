@@ -1,3 +1,5 @@
+import { initModelGallery } from './gallery.js?v=media-1';
+let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
@@ -941,6 +943,7 @@ function createCard(entry) {
   bindModelLink(link, entry);
   bindModelLink(card.querySelector('.open-model'), entry);
   card.querySelector('.catalog-card-description').textContent = entry.description;
+  card.querySelector('.catalog-details').addEventListener('click', () => modelGallery.open(entry));
   const meta = card.querySelector('.catalog-card-meta');
   meta.textContent = describeModel(entry);
   card.querySelector('.catalog-share').addEventListener('click', () => shareModel(entry, byId('catalog-share-status')));
@@ -1601,6 +1604,7 @@ function showExistingCover() {
 function openEditor(row) {
   editing = row;
   addForm.reset();
+  modelGallery.reset(row);
   clearEditorPreview();
   note(addStatus, '');
   setAngleReadouts();
@@ -1638,7 +1642,7 @@ byId('account-add').addEventListener('click', startAdding);
 closeEditor.addEventListener('click', () => addDialog.close());
 addDialog.addEventListener('cancel', event => { if (saving) event.preventDefault(); });
 addDialog.addEventListener('close', () => {
-  if (!addDialog.open) clearEditorPreview();
+  if (!addDialog.open) { clearEditorPreview(); modelGallery?.reset(); }
 });
 
 async function photoCover(photo) {
@@ -1735,12 +1739,13 @@ for (const input of [azimuthInput, elevationInput]) {
   input.addEventListener('change', renderEditorCover);
 }
 
-async function saveCloudModel(fields, selection, row, account) {
+async function saveCloudModel(fields, selection, row, account, mediaDraft) {
   const id = row?.id ?? selection?.importDrive?.modelId ?? crypto.randomUUID();
   const prefix = account.id + '/' + id + '/' + crypto.randomUUID();
   const storage = supabase.storage.from(BUCKET);
   const uploaded = [];
   let drivePath;
+  let mediaChange;
   const cleanup = async paths => {
     const failed = [];
     for (const path of paths) {
@@ -1757,6 +1762,8 @@ async function saveCloudModel(fields, selection, row, account) {
 
   const payload = { ...fields };
   try {
+    if (mediaDraft) mediaChange = await modelGallery.prepare(mediaDraft, row, id, account);
+    if (mediaChange) payload.media_paths = mediaChange.paths;
     if (selection?.importDrive) {
       checkImportAccount(account);
       const claim = await drivePost('import-claim', {fileId:selection.importDrive.fileId, modelId:id, moderatorEmail:account.email});
@@ -1781,6 +1788,7 @@ async function saveCloudModel(fields, selection, row, account) {
     }
   } catch (error) {
     await cleanup([...uploaded, ...(drivePath ? [drivePath] : [])]);
+    if (mediaChange) await modelGallery.remove(mediaChange.uploaded).catch(() => {});
     throw error;
   }
 
@@ -1792,7 +1800,7 @@ async function saveCloudModel(fields, selection, row, account) {
       const change = row
         ? table.update(payload).eq('id', id).eq('user_id', account.id).eq('updated_at', row.updated_at).eq('deleting', false)
         : table.insert({ id, ...payload });
-      return change.select('id, stl_path, cover_path').maybeSingle();
+      return change.select('*').maybeSingle();
     };
     let { data, error } = await write();
     if (error?.code === 'PGRST204' && error.message.includes('geometry_metrics') && 'geometry_metrics' in payload) {
@@ -1809,13 +1817,15 @@ async function saveCloudModel(fields, selection, row, account) {
       .eq('id', id).eq('user_id', account.id).eq('deleting', false).maybeSingle();
     const matches = current && Object.entries(payload).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
     const written = [...uploaded, ...(drivePath ? [drivePath] : [])];
-    const filesMatch = current && written.length && written.every(path => path === current.stl_path || path === current.cover_path);
+    const filesMatch = current && written.length && written.every(path => path === current.stl_path || path === current.cover_path)
+      && (!mediaChange || JSON.stringify(current.media_paths) === JSON.stringify(mediaChange.paths));
     if (!error && (matches || filesMatch)) {
       saved = current;
     } else {
       if (!error && written.length) {
         await cleanup(written.filter(path => path !== current?.stl_path && path !== current?.cover_path));
       }
+      if (!error && mediaChange) await modelGallery.remove(mediaChange.uploaded.filter(path => !current?.media_paths?.includes(path))).catch(() => {});
       throw new Error('Не удалось подтвердить сохранение. Обновите список моделей перед повторной попыткой.');
     }
   }
@@ -1823,6 +1833,9 @@ async function saveCloudModel(fields, selection, row, account) {
   if (row) {
     const old = [row.stl_path, row.cover_path].filter(path => path !== saved.stl_path && path !== saved.cover_path);
     if (old.length) await cleanup(old);
+    if (mediaChange) await modelGallery.remove((row.media_paths || []).filter(path => !saved.media_paths?.includes(path))).catch(() => {
+      note(accountStatus, 'Модель сохранена, но старые изображения не удалось удалить из хранилища.', true);
+    });
   }
 }
 
@@ -1837,7 +1850,7 @@ async function saveLocalModel(data, fields) {
     downloadUrl = url.href;
   }
   const { file, cover, color, azimuth, elevation } = draft;
-  const model = { file, cover, color, azimuth, elevation, metrics: draft.metrics, ...fields, downloadUrl, id: crypto.randomUUID(), createdAt: Date.now() };
+  const model = { file, cover, color, azimuth, elevation, mediaBlobs: await modelGallery.localBlobs(), metrics: draft.metrics, ...fields, downloadUrl, id: crypto.randomUUID(), createdAt: Date.now() };
   let persisted = true;
   try {
     await libraryTransaction('readwrite', store => store.put(model));
@@ -1870,13 +1883,13 @@ addForm.addEventListener('submit', async event => {
     }
   }
   saving = true;
-  const editorControls = [closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput];
+  const editorControls = [closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
   addButton.disabled = true;
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
     if (supabase) {
-      await saveCloudModel(fields, draft, editing, user);
+      await saveCloudModel(fields, draft, editing, user, modelGallery.draft());
       listPublicModels(true);
       if (!accountPanel.hidden) loadDashboard();
     } else {
@@ -1917,6 +1930,7 @@ deleteDialog.addEventListener('close', async () => {
     }
 
     if (driveFileId(row.stl_path)) await removeAsset(row.stl_path);
+    if (row.media_paths?.length) await modelGallery.remove(row.media_paths);
     const folder = owner + '/' + row.id;
     const storage = supabase.storage.from(BUCKET);
     const paths = [];
@@ -1956,6 +1970,8 @@ for (const category of CATEGORIES) {
 }
 byId('model-search').addEventListener('input', () => renderCatalog(true));
 byId('catalog-sort').addEventListener('change', () => renderCatalog(true));
+
+modelGallery = initModelGallery({getClient: () => supabase, describeModel, showSpecs, orderURL, recordOrder, openModel});
 
 for (const model of publishedModels) {
   model.cover = cachedCover(model);
