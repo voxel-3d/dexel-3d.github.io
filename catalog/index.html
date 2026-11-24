@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=admin-1">
+  <link rel="stylesheet" href="style.css?v=palette-1">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=admin-1"></script>
+  <script type="module" src="script.js?v=palette-1"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -65,23 +65,25 @@
       <button id="catalog-more" class="catalog-card-button account-more" type="button" hidden>Показать ещё</button>
       <template id="library-card">
         <article class="catalog-card">
-          <img class="catalog-card-image" width="640" height="500" alt="" decoding="async">
+          <div class="card-preview">
+            <img class="catalog-card-image" width="640" height="500" alt="" decoding="async">
+            <span class="showcase-badge" hidden>★ Хит</span>
+            <button class="favorite-button card-favorite" type="button" aria-label="Избранное" aria-pressed="false">♡ 0</button>
+            <div class="card-tools">
+              <button class="catalog-share card-tool" type="button" aria-label="Поделиться" title="Поделиться">↗</button>
+              <button class="moderate-showcase card-tool" type="button" aria-label="Редактировать" title="Редактировать" hidden>✎</button>
+              <button class="moderate-delete card-tool" type="button" aria-label="Удалить" title="Удалить" hidden>🗑</button>
+            </div>
+          </div>
           <div class="catalog-card-body">
-            <span class="showcase-badge" hidden>Рекомендуем</span>
-            <h2><a class="model-link"></a></h2>
+            <h2><button class="model-link catalog-details" type="button" aria-haspopup="dialog"></button></h2>
             <p class="catalog-card-description"></p>
             <p class="catalog-card-meta"></p>
-            <div class="model-specs"></div>
             <div class="catalog-card-actions">
-              <button class="favorite-button" type="button" aria-pressed="false">♡ Избранное <span>0</span></button>
-              <a class="catalog-card-button open-model" aria-haspopup="dialog">Смотреть в 3D</a>
+              <button class="catalog-card-button catalog-details" type="button" aria-haspopup="dialog">3D и фото</button>
               <a class="catalog-card-button catalogue-download" download>Скачать STL</a>
-              <button class="catalog-card-button catalog-details" type="button" aria-haspopup="dialog">Подробнее · Фото и GIF</button>
-              <button class="catalog-share" type="button">Поделиться</button>
-              <p class="print-only" hidden>Модель доступна только для заказа печати</p>
+              <span class="print-only" hidden>Только печать</span>
               <button class="catalog-order" type="button">Заказать печать</button>
-              <button class="catalog-card-button moderate-showcase" type="button" hidden>Редактировать</button>
-              <button class="catalog-card-button moderate-delete" type="button" hidden>Удалить</button>
             </div>
           </div>
         </article>
@@ -218,6 +220,8 @@
         <div id="media-editor-list" class="media-editor-list"></div>
         <p id="media-editor-status" role="status"></p>
       </fieldset>
+      <fieldset id="editor-palette" class="model-palette"><legend>Цвет 3D-модели и обложки</legend></fieldset>
+      <button id="recapture-cover" class="catalog-card-button" type="button" hidden>Переснять 3D-обложку</button>
       <fieldset id="cover-angle" class="cover-angle" hidden>
         <legend>Ракурс обложки</legend>
         <label for="cover-azimuth">Поворот <output for="cover-azimuth" id="cover-azimuth-value">35°</output></label>
@@ -246,10 +250,11 @@
     <form id="print-form" class="add-model-form">
       <div class="print-options">
         <label>Материал<select name="material"><option>PETG</option><option>PLA</option><option>ABS</option></select></label>
-        <label>Цвет пластика<span class="print-color"><span id="print-swatch" aria-hidden="true"></span><select name="color"></select></span></label>
+
         <label>Прочность и заполнение<select name="strength"><option value="15">Декор · 15%</option><option value="25" selected>Стандарт · 25%</option><option value="50">Усиленная · 50%</option><option value="100">Монолит · 100%</option></select></label>
         <label>Количество, шт.<input name="quantity" type="number" min="1" max="10000" step="1" value="1" required></label>
       </div>
+      <fieldset id="print-palette" class="model-palette"><legend>Цвет пластика</legend></fieldset>
       <p id="print-estimate" class="model-specs" role="status"></p>
       <p class="estimate-note">Оценка по заполнению, без учёта стенок, поддержек и доставки. Точную цену подтвердит мастерская.</p>
       <button class="button" type="submit">Заказать печать с этими параметрами</button>
@@ -262,7 +267,7 @@
       <div class="details-stage"><img id="details-image" alt=""></div>
       <div class="details-navigation"><button id="details-prev" type="button" aria-label="Предыдущее изображение">‹</button><span id="details-count" role="status"></span><button id="details-next" type="button" aria-label="Следующее изображение">›</button></div>
       <div id="details-thumbs" class="details-thumbs" role="group" aria-label="Изображения модели"></div>
-      <p id="details-meta"></p><p id="details-description"></p><div id="details-specs" class="model-specs"></div>
+      <p id="details-meta"></p><p id="details-tags" hidden></p><p id="details-description"></p><div id="details-specs" class="model-specs"></div>
       <div class="account-actions"><button id="details-3d" class="catalog-card-button" type="button">Смотреть в 3D</button><button id="details-order" class="catalog-card-button library-add" type="button">Заказать печать</button></div>
     </div>
   </dialog>
@@ -270,6 +275,8 @@
   <dialog id="bulk-dialog" class="model-dialog add-model-dialog" aria-labelledby="bulk-title">
     <header class="model-header"><h2 id="bulk-title">Массовая загрузка</h2><button id="bulk-close" class="model-close" type="button" aria-label="Закрыть">×</button></header>
     <form id="bulk-form" class="add-model-form">
+      <fieldset id="bulk-palette" class="model-palette"><legend>Цвет моделей в этой партии</legend></fieldset>
+      <img id="bulk-cover-preview" class="library-cover" width="640" height="500" alt="Предпросмотр первой модели партии" hidden>
       <label for="bulk-files">STL-файлы, до 50 файлов по 20 МБ</label><input id="bulk-files" type="file" accept=".stl,model/stl" multiple required>
       <label for="bulk-category">Общая категория</label><select id="bulk-category"></select>
       <p>Загружаются модели, которыми вы вправе делиться. Название берётся из имени файла.</p>
@@ -313,10 +320,7 @@
     <div class="model-footer">
       <p id="model-help">Перетаскивайте модель, чтобы вращать. Колесо мыши или щипок меняет масштаб. С клавиатуры используйте стрелки, «+» и «−».</p>
       <div class="model-tools">
-        <div class="model-color">
-          <label for="model-color">Цвет пластика</label>
-          <select id="model-color" disabled></select>
-        </div>
+        <fieldset id="model-color" class="model-palette" disabled><legend>Цвет пластика</legend></fieldset>
         <div class="model-actions" role="group" aria-label="Управление камерой">
           <button type="button" data-view-action="out" aria-label="Отдалить" disabled>−</button>
           <button type="button" data-view-action="in" aria-label="Приблизить" disabled>+</button>
@@ -329,6 +333,8 @@
         <label><input id="printer-bed" type="checkbox" disabled> Показать стол принтера (260×260 мм)</label>
         <label><input id="model-wireframe" type="checkbox" disabled> Сетка полигонов (Wireframe)</label>
       </div>
+      <p id="viewer-model-meta"></p>
+      <p id="viewer-model-tags" hidden></p>
       <div id="viewer-specs" class="model-specs"></div>
       <p class="estimate-note">Оценка для замкнутой модели при заполнении 25%, без учёта стенок и поддержек.</p>
       <div class="viewer-links">

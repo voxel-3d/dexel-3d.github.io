@@ -10,7 +10,7 @@ const moderator={id:'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',email:'igorkruk747@gm
 let saved=[],reads=0,listPages=0,refreshes=0;
 const fileId='Drive_file_001';
 const ctx=vm.createContext({console,TextEncoder,crypto:webcrypto,Blob,File,Uint8Array,atob,Date,Map,Set,
- MODERATOR_EMAILS:['igorkruk747@gmail.com'],CATEGORIES:['Все','Другое','Для дома и быта'],MAX_FILE_SIZE:20*1024*1024,
+ MODERATOR_EMAILS:['igorkruk747@gmail.com'],CATEGORIES:['Все','Другое','Для дома и быта'],DEFAULT_COLOR:'#23272e',MAX_FILE_SIZE:20*1024*1024,
  user:{id:'ordinary',email:'other@example.com'},byId,document:{createElement:element},
  note:(el,text)=>{el.textContent=text},driveEndpoint:()=> 'configured',driveFileId:path=>path.match(/drive-(.+)\.stl/)?.[1],
  supabase:{from:()=>({select(){return this},order(){return this},async range(){return {data:[{stl_path:'x/drive-Drive_existing_01.stl'}],error:null}}})},

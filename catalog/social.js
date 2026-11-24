@@ -36,12 +36,16 @@ export function initSocial(api) {
   function renderFavorite(button, entry) {
     const chosen = favoriteKeys.has(entry.id);
     button.setAttribute('aria-pressed', String(chosen));
-    button.replaceChildren(document.createTextNode(chosen ? '♥ В избранном ' : '♡ Избранное '));
+    const compact = button.classList.contains('card-favorite');
+    const label = chosen ? 'Убрать из избранного' : 'В избранное';
+    button.setAttribute('aria-label', label + ' · ' + countFormatter.format(favoriteCounts.get(entry.id) || 0));
+    button.title = label;
+    button.replaceChildren(document.createTextNode(compact ? (chosen ? '♥ ' : '♡ ') : (chosen ? '♥ В избранном ' : '♡ Избранное ')));
     const count = document.createElement('span');
     count.textContent = countFormatter.format(favoriteCounts.get(entry.id) || 0);
     button.append(count);
     button.disabled = !publicModel(entry);
-    button.title = entry.file ? 'Доступно для опубликованных моделей' : '';
+    if (entry.file) button.title = 'Доступно для опубликованных моделей';
   }
 
   function updateFavoriteButtons(id) {
@@ -354,9 +358,30 @@ export function initSocial(api) {
   });
 
   for (const category of api.categories) if (category !== 'Все') $('bulk-category').add(new Option(category,category,category === 'Другое',category === 'Другое'));
+  const bulkPreview = $('bulk-cover-preview');
+  const bulkPaletteField = $('bulk-palette');
+  let previewVersion = 0;
+  const bulkPalette = api.mountPalette(bulkPaletteField, renderBulkPreview);
+  async function renderBulkPreview() {
+    const revision = ++previewVersion;
+    bulkPreview.hidden = true;
+    const file = $('bulk-files').files?.[0];
+    if (bulkRunning || !file || !/\.stl$/i.test(file.name) || !file.size || file.size > api.maxFileSize) return;
+    const active = () => revision === previewVersion && $('bulk-dialog').open && !bulkRunning;
+    try {
+      const cover = await api.queueCover({file, color: bulkPalette.value, azimuth: 35, elevation: 30}, active);
+      if (!active()) return;
+      bulkPreview.src = cover;
+      bulkPreview.hidden = false;
+    } catch { /* Individual file errors are reported on submission. */ }
+  }
+  $('bulk-files').addEventListener('change', renderBulkPreview);
   $('bulk-open').addEventListener('click', () => {
     if (!requireAccount()) return;
-    $('bulk-form').reset(); $('bulk-errors').replaceChildren(); $('bulk-progress').hidden=true; setStatus('bulk-status',''); $('bulk-dialog').showModal();
+    $('bulk-form').reset();
+    bulkPalette.set(api.defaultColor);
+    bulkPreview.hidden = true;
+    bulkPreview.removeAttribute('src'); $('bulk-errors').replaceChildren(); $('bulk-progress').hidden=true; setStatus('bulk-status',''); $('bulk-dialog').showModal();
   });
   $('bulk-close').addEventListener('click', () => { if (!bulkRunning) $('bulk-dialog').close(); });
   $('bulk-dialog').addEventListener('cancel', event => { if (bulkRunning) event.preventDefault(); });
@@ -365,11 +390,11 @@ export function initSocial(api) {
     if (bulkRunning || !requireAccount()) return;
     const files = [...$('bulk-files').files];
     if (!files.length || files.length > 50) { setStatus('bulk-status','Выберите от 1 до 50 STL-файлов.',true); return; }
-    const owner = api.getUser(), category = $('bulk-category').value;
+    const owner = api.getUser(), category = $('bulk-category').value, color = bulkPalette.value;
     const progress = $('bulk-progress'), errors = $('bulk-errors');
     errors.replaceChildren(); progress.max = files.length; progress.value = 0; progress.hidden = false;
     bulkRunning = true;
-    for (const id of ['bulk-close','bulk-submit','bulk-files','bulk-category']) $(id).disabled = true;
+    for (const id of ['bulk-close','bulk-submit','bulk-files','bulk-category','bulk-palette']) $(id).disabled = true;
     let success = 0;
     for (const file of files) {
       setStatus('bulk-status','Обработано ' + progress.value + ' из ' + files.length + ' моделей…');
@@ -379,7 +404,7 @@ export function initSocial(api) {
         let title = file.name.replace(/\.stl$/i,'').replace(/[-_]+/g,' ').trim().slice(0,100);
         if (!title) throw new Error('Укажите имя файла.');
         title = title[0].toLocaleUpperCase('ru') + title.slice(1);
-        const selection = {file,color:'#d4af37',azimuth:35,elevation:30};
+        const selection = {file,color,azimuth:35,elevation:30};
         const cover = await api.queueCover(selection);
         const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
         selection.png = new Blob([bytes],{type:'image/png'});
@@ -394,7 +419,7 @@ export function initSocial(api) {
     }
     setStatus('bulk-status','Обработано ' + files.length + ' из ' + files.length + '. Загружено: ' + success + '.');
     bulkRunning=false;
-    for (const id of ['bulk-close','bulk-submit','bulk-files','bulk-category']) $(id).disabled = false;
+    for (const id of ['bulk-close','bulk-submit','bulk-files','bulk-category','bulk-palette']) $(id).disabled = false;
     if (success) { api.listPublicModels(true); api.loadDashboard(); }
   });
 

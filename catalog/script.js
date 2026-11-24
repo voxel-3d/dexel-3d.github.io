@@ -1,10 +1,11 @@
-import { initPrintOrder } from './print-order.js?v=1';
-import { initModelGallery } from './gallery.js?v=admin-1';
+import { DEFAULT_COLOR, mountPalette, normalizeColor } from './palette.js?v=1';
+import { initPrintOrder } from './print-order.js?v=2';
+import { initModelGallery } from './gallery.js?v=palette-1';
 let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
 
-import { initSocial } from './social.js?v=categories-optional-description';
+import { initSocial } from './social.js?v=palette-1';
 
 // Use the project URL and a public publishable (or legacy anon) key from Supabase.
 const SUPABASE_URL = 'https://vvwsenwbjhmagwigtfqs.supabase.co';
@@ -49,11 +50,6 @@ const publishedModels = [
   }
 ];
 
-const colors = [
-  ['Белый', '#eeeeeb'], ['Чёрный', '#252529'], ['Жёлтый', '#e8b817'],
-  ['Красный', '#b7282b'], ['Синий', '#275caf'], ['Койот', '#a3865b'], ['Олива', '#566540']
-];
-
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_PHOTO_SIZE = 10 * 1024 * 1024;
 const MAX_PHOTO_EDGE = 1280;
@@ -71,6 +67,7 @@ const status = byId('model-status');
 const title = byId('model-title');
 const description = byId('model-description');
 const colorPicker = byId('model-color');
+const viewerPalette = mountPalette(colorPicker, color => viewer?.setColor(color), {live: true});
 const actions = [...dialog.querySelectorAll('[data-view-action]')];
 const grid = byId('library-grid');
 const template = byId('library-card');
@@ -99,13 +96,6 @@ function enableActions(enabled) {
   for (const action of actions) action.disabled = !enabled;
   colorPicker.disabled = !enabled;
   byId('printer-bed').disabled = byId('model-wireframe').disabled = !enabled;
-}
-
-function initColors(color) {
-  colorPicker.replaceChildren();
-  const choices = colors.some(([, hex]) => hex === color) ? colors : [['Цвет модели', color], ...colors];
-  for (const [label, hex] of choices) colorPicker.add(new Option(label, hex));
-  colorPicker.value = color;
 }
 
 function disposeModel(model) {
@@ -828,7 +818,8 @@ async function openModel(entry, push = true) {
   preview.hidden = !cover;
   title.textContent = entry.title;
   description.textContent = entry.description;
-  initColors(entry.color);
+  viewerPalette.set(entry.color);
+  showModelMeta(entry, byId('viewer-model-meta'), byId('viewer-model-tags'));
   status.textContent = 'Загружаем 3D-модель…';
   enableActions(false);
   if (!dialog.open) dialog.showModal();
@@ -846,7 +837,7 @@ async function openModel(entry, push = true) {
     load.signal.throwIfAborted();
     showSpecs(byId('viewer-specs'), entry.metrics);
     const card = cards.get(entry);
-    if (card) showSpecs(card.querySelector('.model-specs'), entry.metrics);
+    if (card) showCardMeta(card, entry);
     renderer = await selectRenderer(THREE);
     load.signal.throwIfAborted();
     viewer = createViewer(THREE, OrbitControls, renderer, model, entry.title, () => {
@@ -945,6 +936,25 @@ function showRelated(entry) {
   byId('related-models').hidden = !related.childElementCount;
 }
 
+function showCardMeta(card, entry) {
+  const parts = [categoryOf(entry)];
+  const metrics = entry.metrics;
+  if (validMetrics(metrics)) {
+    parts.push([metrics.width, metrics.depth, metrics.height].map(value => decimal.format(value)).join('×') + ' мм');
+    if (metrics.volume > 0) parts.push('~' + decimal.format(metrics.volume * DENSITY_G_CM3 * INFILL) + ' г');
+  }
+  const meta = card.querySelector('.catalog-card-meta');
+  meta.textContent = parts.join(' · ');
+  meta.title = meta.textContent;
+}
+
+function showModelMeta(entry, meta, tags) {
+  meta.textContent = describeModel(entry);
+  const values = entry.remote?.tags || [];
+  tags.hidden = !values.length;
+  tags.textContent = values.length ? 'Теги: ' + values.join(', ') : '';
+}
+
 function createCard(entry) {
   const card = template.content.firstElementChild.cloneNode(true);
   const image = card.querySelector('img');
@@ -953,16 +963,14 @@ function createCard(entry) {
   if (cover) image.src = cover;
   const link = card.querySelector('.model-link');
   link.textContent = entry.title;
-  bindModelLink(link, entry);
-  bindModelLink(card.querySelector('.open-model'), entry);
   card.querySelector('.catalog-card-description').textContent = entry.description;
-  card.querySelector('.catalog-details').addEventListener('click', () => modelGallery.open(entry));
-  const meta = card.querySelector('.catalog-card-meta');
-  meta.textContent = describeModel(entry);
+  for (const button of card.querySelectorAll('.catalog-details')) {
+    button.addEventListener('click', () => modelGallery.open(entry));
+  }
   card.querySelector('.catalog-share').addEventListener('click', () => shareModel(entry, byId('catalog-share-status')));
   social?.bindFavorite(card.querySelector('.favorite-button'), entry);
   card.dataset.modelId = entry.id;
-  showSpecs(card.querySelector('.model-specs'), entry.metrics);
+  showCardMeta(card, entry);
 
   card.querySelector('.showcase-badge').hidden = !isFeatured(entry);
   const downloadable = canDownload(entry);
@@ -1007,9 +1015,9 @@ const measureVisible = new IntersectionObserver(records => {
     if (!entry || validMetrics(entry.metrics)) continue;
     measurementQueue = measurementQueue.then(async () => {
       if (!card.isConnected) return;
-      const specs = card.querySelector('.model-specs');
-      try { showSpecs(specs, await readMetrics(entry)); }
-      catch { specs.textContent = 'Расчёт недоступен. Откройте модель для повторной попытки.'; }
+      try { await readMetrics(entry); }
+      catch { /* Keep the category visible if geometry cannot be loaded. */ }
+      showCardMeta(card, entry);
     }).catch(() => {});
   }
 }, { rootMargin: '160px' });
@@ -1042,7 +1050,7 @@ function renderCatalog(reset = false) {
     }
     applyModerationButtons(card, entry);
     if (!validMetrics(entry.metrics)) measureVisible.observe(card);
-    else showSpecs(card.querySelector('.model-specs'), entry.metrics);
+    else showCardMeta(card, entry);
     return card;
   });
   if (grid.children.length !== visible.length || visible.some((card,i) => grid.children[i] !== card)) {
@@ -1061,12 +1069,11 @@ for (const button of actions) {
   });
 }
 
-colorPicker.addEventListener('change', () => viewer?.setColor(colorPicker.value));
 
 byId('printer-bed').addEventListener('change', event => viewer?.setBed(event.target.checked));
 byId('model-wireframe').addEventListener('change', event => viewer?.setWireframe(event.target.checked));
 byId('viewer-share').addEventListener('click', () => shareModel(activeModel, byId('viewer-share-status')));
-byId('viewer-order').addEventListener('click', () => openPrintOrder(activeModel));
+byId('viewer-order').addEventListener('click', () => openPrintOrder(activeModel, viewerPalette.value));
 
 dialog.addEventListener('close', () => {
   if (dialog.open) return;
@@ -1144,7 +1151,7 @@ function publicEntry(row) {
   return {
     id: row.id, title: row.title, description: row.description, category: row.category,
     createdAt: Date.parse(row.created_at), metrics: row.geometry_metrics,
-    color: '#d4af37', driveId: driveFileId(row.stl_path),
+    color: normalizeColor(row.cover_color), driveId: driveFileId(row.stl_path),
     fileUrl: driveFileId(row.stl_path) ? undefined : cloudFile(row.stl_path), cover: cloudFile(row.cover_path), remote: row
   };
 }
@@ -1169,11 +1176,16 @@ async function refreshBuiltinModels(version) {
     if (row?.hidden) { entries.delete(original.id); continue; }
     const entry = { ...original, builtinSettings: row };
     if (original.coverTask) void original.coverTask.then(() => {
-      if (entries.get(entry.id) !== entry || !original.cover) return;
+      if (entries.get(entry.id) !== entry || !original.cover || row?.studio_cover_path) return;
       entry.cover = original.cover;
       const image = cards.get(entry)?.querySelector('img');
       if (image) image.src = original.cover;
     });
+    if (row?.cover_color) entry.color = normalizeColor(row.cover_color);
+    if (row?.studio_cover_path) {
+      entry.cover = supabase.storage.from('model-media').getPublicUrl(row.studio_cover_path).data.publicUrl;
+      entry.coverTask = undefined;
+    }
     for (const key of ['title', 'description', 'category', 'is_featured', 'featured_rank', 'allow_download', 'media_paths']) {
       if (row?.[key] != null) entry[key] = row[key];
     }
@@ -1258,8 +1270,10 @@ function logModelEvent(entry, kind) {
     const active = entries.get(modelId);
     if (active?.remote) {
       Object.assign(active.remote, counters);
-      const activeMeta = cards.get(active)?.querySelector('.catalog-card-meta');
-      if (activeMeta) activeMeta.textContent = describeModel(active);
+      if (activeModel?.id === modelId) {
+        Object.assign(activeModel.remote ?? {}, counters);
+        showModelMeta(activeModel, byId('viewer-model-meta'), byId('viewer-model-tags'));
+      }
     }
     if (byId('catalog-sort').value !== 'new') renderCatalog();
     const item = owned.find(row => row.id === modelId);
@@ -1604,7 +1618,7 @@ byId('drive-import-form').addEventListener('submit', async event => {
         if(!bytes.byteLength||bytes.byteLength>MAX_FILE_SIZE)throw new Error('Некорректный размер STL.');
         const localFile=new File([bytes],file.fileName,{type:'model/stl'});
         const modelId=await driveImportModelId(file.fileId);
-        const selection={file:localFile,color:'#d4af37',azimuth:35,elevation:30};
+        const selection={file:localFile,color:DEFAULT_COLOR,azimuth:35,elevation:30};
         const cover=await queueCover(selection,()=>!driveImportCancelled&&user?.id===account.id);
         checkImportAccount(account);
         const pngBytes=Uint8Array.from(atob(cover.split(',')[1]),char=>char.charCodeAt(0));
@@ -1698,6 +1712,8 @@ function openEditor(row) {
   editing = row;
   addForm.reset();
   modelGallery.reset(row);
+  editorPalette.set(row?.cover_color ?? row?.color);
+  recapture.hidden = !row;
   setShowcaseFields(editorShowcase, row);
   clearEditorPreview();
   note(addStatus, '');
@@ -1768,7 +1784,7 @@ async function renderEditorCover() {
   const file = fileInput.files[0];
   const photo = photoInput.files[0];
   angleFields.hidden = Boolean(photo) || (!file && !editing);
-  stlCoverButton.hidden = !photo && !editing;
+  stlCoverButton.hidden = !photo || Boolean(editing?.builtin);
   if (file && (!/\.stl$/i.test(file.name) || !file.size || file.size > MAX_FILE_SIZE)) {
     angleFields.hidden = true;
     note(addStatus, 'Выберите непустой STL-файл размером до 20 МБ.', true);
@@ -1783,8 +1799,9 @@ async function renderEditorCover() {
   const selection = {
     file,
     driveId: !file && editing ? driveFileId(editing.stl_path) : undefined,
-    fileUrl: !file && editing && !driveFileId(editing.stl_path) ? cloudFile(editing.stl_path) : undefined,
-    color: '#d4af37',
+    fileUrl: !file && editing && !driveFileId(editing.stl_path)
+      ? (editing.builtin ? editing.fileUrl : cloudFile(editing.stl_path)) : undefined,
+    color: editorPalette.value,
     azimuth: Number(azimuthInput.value),
     elevation: Number(elevationInput.value)
   };
@@ -1797,6 +1814,7 @@ async function renderEditorCover() {
     if (!active()) return;
     showSpecs(byId('upload-specs'), selection.metrics || editing?.geometry_metrics);
     const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
+    if (photo) selection.color = editorPalette.value;
     draft = { ...selection, cover, png: new Blob([bytes], { type: 'image/png' }) };
     coverImage.src = cover;
     coverImage.hidden = false;
@@ -1813,6 +1831,20 @@ async function renderEditorCover() {
     }
   }
 }
+
+const editorPaletteField = byId('editor-palette');
+const editorPalette = mountPalette(editorPaletteField, () => {
+  if (photoInput.files.length) {
+    if (draft) draft.color = editorPalette.value;
+    return;
+  }
+  if (fileInput.files.length || editing) void renderEditorCover();
+});
+const recapture = byId('recapture-cover');
+recapture.addEventListener('click', () => {
+  photoInput.value = '';
+  void renderEditorCover();
+});
 
 fileInput.addEventListener('change', () => {
   if (fileInput.files.length || photoInput.files.length || !editing) renderEditorCover();
@@ -1835,7 +1867,7 @@ for (const input of [azimuthInput, elevationInput]) {
   input.addEventListener('change', renderEditorCover);
 }
 
-async function saveBuiltinModel(entry, fields, settings) {
+async function saveBuiltinModel(entry, fields, settings, selection) {
   if (!isModerator()) throw new Error('Действие доступно администратору.');
   const previous = entry.builtinSettings;
   const table = supabase.from('catalog_builtin_models');
@@ -1843,6 +1875,10 @@ async function saveBuiltinModel(entry, fields, settings) {
   if (ready.error) throw new Error('Выполните catalog/admin-full-access.sql в Supabase.');
   const owner = previous?.owner_id || user.id;
   const namespace = previous?.media_namespace || crypto.randomUUID();
+  if (selection) {
+    const {error} = await table.select('studio_cover_path').limit(0);
+    if (error) throw new Error('Выполните catalog/model-colors.sql, чтобы сохранить новую обложку.');
+  }
   const media = await modelGallery.prepare(modelGallery.draft(), previous, namespace, {id:owner});
   const revision = crypto.randomUUID();
   const payload = {
@@ -1850,6 +1886,21 @@ async function saveBuiltinModel(entry, fields, settings) {
     ...settings, owner_id: owner, media_namespace: namespace, revision,
     media_paths: media?.paths ?? previous?.media_paths ?? []
   };
+  const coverPath = selection ? owner + '/' + namespace + '/' + crypto.randomUUID() + '.webp' : undefined;
+  if (coverPath) {
+    try {
+      const blob = await webpCover(selection.png);
+      const {error} = await supabase.storage.from('model-media').upload(coverPath, await blob.arrayBuffer(), {
+        contentType: 'image/webp', upsert: false
+      });
+      if (error) throw error;
+      payload.studio_cover_path = coverPath;
+      payload.cover_color = normalizeColor(selection.color);
+    } catch {
+      await modelGallery.remove([coverPath, ...(media?.uploaded || [])]).catch(() => {});
+      throw new Error('Не удалось сохранить студийную обложку.');
+    }
+  }
   try {
     const change = previous
       ? table.update(payload).eq('slug', entry.id).eq('revision', previous.revision).eq('hidden', false)
@@ -1857,15 +1908,19 @@ async function saveBuiltinModel(entry, fields, settings) {
     const {data, error} = await change.select('revision').maybeSingle();
     if (error || data?.revision !== revision) throw new Error();
   } catch {
-    const {data, error} = await table.select('revision,media_paths').eq('slug', entry.id).maybeSingle();
+    const {data, error} = await table.select('*').eq('slug', entry.id).maybeSingle();
     if (error || data?.revision !== revision) {
-      if (!error && media) await modelGallery.remove(media.uploaded.filter(path => !data?.media_paths?.includes(path))).catch(() => {});
+      if (!error) {
+        const unused = (media?.uploaded || []).filter(path => !data?.media_paths?.includes(path));
+        if (coverPath && data?.studio_cover_path !== coverPath) unused.push(coverPath);
+        await modelGallery.remove(unused).catch(() => {});
+      }
       throw new Error('Не удалось подтвердить сохранение. Обновите каталог и повторите попытку.');
     }
   }
-  if (media) {
-    await modelGallery.remove((previous?.media_paths || []).filter(path => !media.paths.includes(path))).catch(() => {});
-  }
+  const replaced = media ? (previous?.media_paths || []).filter(path => !media.paths.includes(path)) : [];
+  if (coverPath && previous?.studio_cover_path) replaced.push(previous.studio_cover_path);
+  await modelGallery.remove(replaced).catch(() => {});
 }
 
 async function saveCloudModel(fields, selection, row, account, mediaDraft) {
@@ -1891,6 +1946,14 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
   }
 
   const payload = { ...fields };
+  if (selection?.color) payload.cover_color = normalizeColor(selection.color);
+  if ('cover_color' in payload && row?.cover_color === undefined) {
+    const {error} = await supabase.from('models').select('cover_color').limit(0);
+    if (error?.code === '42703' || error?.code === 'PGRST204') {
+      if (payload.cover_color !== DEFAULT_COLOR) throw new Error('Выполните catalog/model-colors.sql, чтобы сохранить выбранный цвет.');
+      delete payload.cover_color;
+    } else if (error) throw new Error('Не удалось проверить настройки цвета. Повторите попытку.');
+  }
   try {
     if (mediaDraft) mediaChange = await modelGallery.prepare(mediaDraft, row, id, {id:assetOwner});
     if (mediaChange) payload.media_paths = mediaChange.paths;
@@ -2017,14 +2080,14 @@ addForm.addEventListener('submit', async event => {
     }
   }
   saving = true;
-  const editorControls = [editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
+  const editorControls = [editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
   addButton.disabled = true;
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
     if (supabase) {
       if (editing?.builtin) {
-        await saveBuiltinModel(editing, fields, settings);
+        await saveBuiltinModel(editing, fields, settings, draft);
         await listPublicModels(true);
         addDialog.close();
         return;
@@ -2033,6 +2096,7 @@ addForm.addEventListener('submit', async event => {
         const {error} = await supabase.from('models').select('allow_download').limit(0);
         if (error) throw new Error('Для настроек витрины выполните catalog/showcase-and-orders.sql в Supabase.');
       }
+      if (!draft && editing && editorPalette.value !== normalizeColor(editing.cover_color)) fields.cover_color = editorPalette.value;
       await saveCloudModel(fields, draft, editing, user, modelGallery.draft());
       listPublicModels(true);
       if (!accountPanel.hidden) loadDashboard();
@@ -2141,7 +2205,7 @@ byId('model-search').addEventListener('input', () => renderCatalog(true));
 byId('download-only').addEventListener('change', () => renderCatalog(true));
 byId('catalog-sort').addEventListener('change', () => renderCatalog(true));
 
-modelGallery = initModelGallery({getClient: () => supabase, describeModel, showSpecs, openPrintOrder, openModel});
+modelGallery = initModelGallery({getClient: () => supabase, describeModel, showModelMeta, showSpecs, openPrintOrder, openModel});
 
 for (const model of publishedModels) {
   model.builtin = true;
@@ -2153,7 +2217,7 @@ for (const model of publishedModels) {
     const card = cards.get(model);
     if (card) {
       card.querySelector('img').src = cover;
-      showSpecs(card.querySelector('.model-specs'), model.metrics);
+      showCardMeta(card, model);
     }
     rememberCover(model, cover);
   }).catch(() => {}).finally(() => { delete model.coverTask; });
@@ -2204,7 +2268,7 @@ social = initSocial({
   getEntries: () => entries, categories: CATEGORIES, maxFileSize: MAX_FILE_SIZE,
   openAuth, showCatalog, showAccount, createCard, publicEntry, modelURL,
   queueCover, saveCloudModel, listPublicModels, loadDashboard,
-  closeViewer: () => dialog.close(), cloudSetup
+  closeViewer: () => dialog.close(), cloudSetup, mountPalette, defaultColor: DEFAULT_COLOR
 });
 
 for (const entry of entries.values()) {
