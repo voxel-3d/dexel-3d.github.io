@@ -156,7 +156,8 @@ function doPost(e) {
       } else if (body.action === 'upload') {
         if (!UUID.test(body.modelId)) throw new Error('Неверный modelId.');
         const rows = api_('/rest/v1/models?select=user_id&id=eq.' + body.modelId, body.accessToken);
-        if (rows.length && rows[0].user_id !== owner) throw new Error('Модель принадлежит другому пользователю.');
+        const assetOwner = rows.length ? rows[0].user_id : owner;
+        if (assetOwner !== owner) moderator_(account, body.moderatorEmail);
         if (typeof body.base64 !== 'string' || body.base64.length > Math.ceil(MAX_STL_BYTES/3)*4 || !/^[A-Za-z0-9+/]*={0,2}$/.test(body.base64)) throw new Error('Неверный Base64.');
         const bytes = Utilities.base64Decode(body.base64);
         validSTL_(bytes);
@@ -164,17 +165,17 @@ function doPost(e) {
         if (!/\.stl$/i.test(name)) throw new Error('Можно загрузить только .stl.');
         const folder = DriveApp.getFolderById(FOLDER_ID);
         // Deterministic physical name prevents duplicates even after the receipt cache expires.
-        const physicalName = owner + '_' + body.requestId + '.stl';
+        const physicalName = assetOwner + '_' + body.requestId + '.stl';
         const previous = folder.getFilesByName(physicalName);
         let file;
         if (previous.hasNext()) {
           file = previous.next();
           const prior = file_(file.getId());
-          if (prior.meta.owner !== owner || prior.meta.model !== body.modelId) throw new Error('Конфликт повторного запроса.');
+          if (prior.meta.owner !== assetOwner || prior.meta.model !== body.modelId) throw new Error('Конфликт повторного запроса.');
         } else {
           file = folder.createFile(Utilities.newBlob(bytes, 'model/stl', physicalName));
           try {
-            file.setDescription(JSON.stringify({app:'dexel-stl-v1', owner:owner, model:body.modelId, originalName:name}));
+            file.setDescription(JSON.stringify({app:'dexel-stl-v1', owner:assetOwner, model:body.modelId, originalName:name}));
             file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
           } catch (err) { file.setTrashed(true); throw err; }
         }
@@ -182,7 +183,7 @@ function doPost(e) {
         result.name = name;
       } else if (body.action === 'delete') {
         const item = file_(body.fileId);
-        if (item.meta.owner !== owner) throw new Error('Удалять файл может только его владелец.');
+        if (item.meta.owner !== owner) moderator_(account, body.moderatorEmail);
         const rows = api_('/rest/v1/models?select=stl_path,deleting&id=eq.' + item.meta.model, body.accessToken);
         if (rows.some(row => row.stl_path === path_(body.fileId, item.meta) && !row.deleting)) throw new Error('Сначала снимите модель с публикации или сохраните новый STL.');
         item.file.setTrashed(true);

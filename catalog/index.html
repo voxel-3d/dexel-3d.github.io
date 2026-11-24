@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=showcase-1">
+  <link rel="stylesheet" href="style.css?v=admin-1">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=showcase-1"></script>
+  <script type="module" src="script.js?v=admin-1"></script>
 </head>
 <body class="catalog-page">
   <a class="skip" href="#main">К содержимому</a>
@@ -50,7 +50,7 @@
       <div class="catalog-filters" aria-label="Поиск и фильтры">
         <label>Поиск моделей<input id="model-search" type="search" placeholder="Название или описание"></label>
         <label>Сортировка<select id="catalog-sort">
-          <option value="new">Сначала витринные и новые</option>
+          <option value="new">Сначала рекомендуемые и новые</option>
           <option value="views_count">Популярные (по просмотрам)</option>
           <option value="downloads_count">Чаще скачивают</option>
         </select></label>
@@ -67,7 +67,7 @@
         <article class="catalog-card">
           <img class="catalog-card-image" width="640" height="500" alt="" decoding="async">
           <div class="catalog-card-body">
-            <span class="showcase-badge" hidden>Витрина</span>
+            <span class="showcase-badge" hidden>Рекомендуем</span>
             <h2><a class="model-link"></a></h2>
             <p class="catalog-card-description"></p>
             <p class="catalog-card-meta"></p>
@@ -80,7 +80,8 @@
               <button class="catalog-share" type="button">Поделиться</button>
               <p class="print-only" hidden>Модель доступна только для заказа печати</p>
               <button class="catalog-order" type="button">Заказать печать</button>
-              <button class="catalog-card-button moderate-showcase" type="button" hidden>Настройки витрины</button>
+              <button class="catalog-card-button moderate-showcase" type="button" hidden>Редактировать</button>
+              <button class="catalog-card-button moderate-delete" type="button" hidden>Удалить</button>
             </div>
           </div>
         </article>
@@ -127,6 +128,7 @@
         <ul id="drive-import-errors" aria-label="Ошибки импорта"></ul>
       </section>
       <p id="account-status" class="library-status" role="status"></p>
+      <div id="admin-pending" class="owned-actions" hidden></div>
       <div id="owned-models" class="owned-models"></div></div>
       <div id="favorite-panel" hidden><h2>Избранное</h2><p id="favorite-status" class="library-status" role="status"></p><div id="favorite-grid" class="catalog-grid"></div></div>
     </section>
@@ -185,8 +187,8 @@
       <button class="model-close" id="close-add-model" type="button" aria-label="Закрыть добавление модели">×</button>
     </header>
     <form id="add-model-form" class="add-model-form">
-      <label for="library-file">Файл STL, до 20 МБ</label>
-      <input id="library-file" name="file" type="file" accept=".stl,model/stl" required autofocus>
+      <div id="editor-file-fields"><label for="library-file">Файл STL, до 20 МБ</label>
+      <input id="library-file" name="file" type="file" accept=".stl,model/stl" required autofocus></div>
       <label for="library-title">Название</label>
       <input id="library-title" name="title" type="text" maxlength="100" required>
       <label for="library-description">Описание (необязательно)</label>
@@ -202,7 +204,7 @@
         <label for="library-download">Ссылка для скачивания (необязательно)</label>
         <input id="library-download" name="download" type="url" maxlength="2048" placeholder="https://…">
       </div>
-      <div class="cover-photo">
+      <div id="editor-cover-fields" class="cover-photo">
         <label for="library-photo">Своё фото для обложки</label>
         <p id="library-photo-help">Необязательно. JPG, PNG или WebP до 10 МБ.</p>
         <input id="library-photo" type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" aria-describedby="library-photo-help">
@@ -239,15 +241,6 @@
     <label>Приоритет (1, 2, 3…) <input name="featured_rank" type="number" min="1" max="2147483647" step="1" value="100" required></label>
     <label class="showcase-checkbox"><input name="allow_download" type="checkbox" checked> Разрешить скачивание STL-файла</label>
   </template>
-  <dialog id="showcase-dialog" class="model-dialog add-model-dialog" aria-labelledby="showcase-title">
-    <header class="model-header"><h2 id="showcase-title"></h2><button id="showcase-close" class="model-close" type="button" aria-label="Закрыть настройки витрины">×</button></header>
-    <form id="showcase-form" class="add-model-form">
-      <fieldset id="moderator-showcase-fields" class="model-media-fields"></fieldset>
-      <p id="showcase-status" class="library-status" role="status"></p>
-      <button class="button" type="submit">Сохранить настройки</button>
-    </form>
-  </dialog>
-
   <dialog id="print-dialog" class="model-dialog add-model-dialog" aria-labelledby="print-heading">
     <header class="model-header"><div><h2 id="print-heading">Параметры печати</h2><p id="print-title"></p></div><button id="print-close" class="model-close" type="button" aria-label="Закрыть параметры печати">×</button></header>
     <form id="print-form" class="add-model-form">

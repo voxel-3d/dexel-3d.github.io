@@ -1,5 +1,5 @@
 import { initPrintOrder } from './print-order.js?v=1';
-import { initModelGallery } from './gallery.js?v=showcase-1';
+import { initModelGallery } from './gallery.js?v=admin-1';
 let modelGallery;
 const GOOGLE_DRIVE_UPLOAD_URL = 'https://script.google.com/macros/s/AKfycbzulR4uSuyRMdNPEm784BzatwkIUgyw5-_RLJUGb1e7WgOYywgmiGuXXn7qb_QRaFS2/exec';
 const MODERATOR_EMAILS = ['igorkruk747@gmail.com'];
@@ -292,7 +292,7 @@ function fileBase64(file) {
 }
 async function removeAsset(path) {
   const id = driveFileId(path);
-  if (id) await drivePost('delete', {fileId:id});
+  if (id) await drivePost('delete', {fileId:id, ...(isModerator() ? {moderatorEmail:user.email} : {})});
   else {
     const {error} = await supabase.storage.from(BUCKET).remove([path]);
     if (error) throw error;
@@ -890,10 +890,7 @@ const storefront = entry => entry.remote ?? entry;
 const canDownload = entry => storefront(entry).allow_download !== false;
 const isFeatured = entry => storefront(entry).is_featured === true;
 const editorShowcase = byId('showcase-fields');
-const moderatorShowcase = byId('moderator-showcase-fields');
-for (const fields of [editorShowcase, moderatorShowcase]) {
-  fields.append(byId('showcase-settings').content.cloneNode(true));
-}
+editorShowcase.append(byId('showcase-settings').content.cloneNode(true));
 function setShowcaseFields(fields, row) {
   fields.querySelector('[name=is_featured]').checked = row?.is_featured === true;
   fields.querySelector('[name=featured_rank]').value = row?.featured_rank ?? 100;
@@ -906,41 +903,6 @@ function readShowcaseFields(fields) {
     allow_download: fields.querySelector('[name=allow_download]').checked
   };
 }
-const showcaseDialog = byId('showcase-dialog');
-let moderatedModel;
-function openShowcaseEditor(row) {
-  if (!isModerator() || showcaseDialog.open) return;
-  moderatedModel = row;
-  byId('showcase-title').textContent = row.title;
-  setShowcaseFields(moderatorShowcase, row);
-  note(byId('showcase-status'), '');
-  showcaseDialog.showModal();
-}
-byId('showcase-close').addEventListener('click', () => showcaseDialog.close());
-byId('showcase-form').addEventListener('submit', async event => {
-  event.preventDefault();
-  if (!isModerator() || !moderatedModel) return;
-  const submit = event.submitter || byId('showcase-form').querySelector('[type=submit]');
-  if (submit.disabled) return;
-  const row = moderatedModel;
-  const settings = readShowcaseFields(moderatorShowcase);
-  submit.disabled = true;
-  try {
-    const {error} = await supabase.rpc('set_showcase_settings', {
-      model_id: row.id, featured: settings.is_featured, rank: settings.featured_rank,
-      downloadable: settings.allow_download
-    });
-    if (error) throw error;
-    if (moderatedModel === row) showcaseDialog.close();
-    await listPublicModels(true);
-  } catch (error) {
-    if (moderatedModel === row) note(byId('showcase-status'), error.code === 'PGRST202'
-      ? 'Выполните catalog/showcase-and-orders.sql в Supabase.'
-      : 'Не удалось сохранить настройки витрины.', true);
-  } finally {
-    submit.disabled = false;
-  }
-});
 const openPrintOrder = initPrintOrder({readMetrics, modelURL, recordOrder: submitPrintOrder});
 
 async function shareModel(entry, message) {
@@ -1029,9 +991,9 @@ function createCard(entry) {
     }
   }
   card.querySelector('.catalog-order').addEventListener('click', () => openPrintOrder(entry));
-  const moderation = card.querySelector('.moderate-showcase');
-  moderation.hidden = !entry.remote || !isModerator();
-  moderation.addEventListener('click', () => openShowcaseEditor(entry.remote));
+  applyModerationButtons(card, entry);
+  card.querySelector('.moderate-showcase').addEventListener('click', () => openEditor(entry.builtin ? builtinEditorRow(entry) : entry.remote));
+  card.querySelector('.moderate-delete').addEventListener('click', () => askToDelete(entry.builtin ? builtinEditorRow(entry) : entry.remote));
   return card;
 }
 
@@ -1078,7 +1040,7 @@ function renderCatalog(reset = false) {
       card = createCard(entry);
       cards.set(entry, card);
     }
-    card.querySelector('.moderate-showcase').hidden = !entry.remote || !isModerator();
+    applyModerationButtons(card, entry);
     if (!validMetrics(entry.metrics)) measureVisible.observe(card);
     else showSpecs(card.querySelector('.model-specs'), entry.metrics);
     return card;
@@ -1187,6 +1149,58 @@ function publicEntry(row) {
   };
 }
 
+function applyModerationButtons(card, entry) {
+  for (const selector of ['.moderate-showcase', '.moderate-delete']) {
+    card.querySelector(selector).hidden = !isModerator() || !(entry.remote || entry.builtin);
+  }
+}
+
+function builtinEditorRow(entry) {
+  return { ...entry, builtin: true,
+    geometry_metrics: entry.metrics, tags: [], cover_azimuth: 35, cover_elevation: 30 };
+}
+
+async function refreshBuiltinModels(version) {
+  const { data, error } = await supabase.from('catalog_builtin_models').select('*');
+  if (error || version !== catalogVersion) return;
+  const settings = new Map(data.map(row => [row.slug, row]));
+  for (const original of publishedModels) {
+    const row = settings.get(original.id);
+    if (row?.hidden) { entries.delete(original.id); continue; }
+    const entry = { ...original, builtinSettings: row };
+    if (original.coverTask) void original.coverTask.then(() => {
+      if (entries.get(entry.id) !== entry || !original.cover) return;
+      entry.cover = original.cover;
+      const image = cards.get(entry)?.querySelector('img');
+      if (image) image.src = original.cover;
+    });
+    for (const key of ['title', 'description', 'category', 'is_featured', 'featured_rank', 'allow_download', 'media_paths']) {
+      if (row?.[key] != null) entry[key] = row[key];
+    }
+    entries.set(entry.id, entry);
+  }
+}
+
+async function loadPendingModeration() {
+  const panel = byId('admin-pending');
+  if (!panel) return;
+  panel.replaceChildren();
+  panel.hidden = true;
+  if (!supabase || !isModerator()) return;
+  const accountId = user.id;
+  const { data, error } = await supabase.from('models').select('*').eq('deleting', true).order('updated_at').limit(100);
+  if (error || user?.id !== accountId) return;
+  for (const row of data) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'catalog-card-button';
+    button.textContent = 'Повторить удаление: ' + row.title;
+    button.addEventListener('click', () => askToDelete(row));
+    panel.append(button);
+  }
+  panel.hidden = !data.length;
+}
+
 async function listPublicModels(restart = false) {
   if (!supabase) return;
   if (listing && !restart) return;
@@ -1208,6 +1222,8 @@ async function listPublicModels(restart = false) {
     const available = new Set(rows.map(row => row.id));
     for (const [id, entry] of entries) if (entry.remote && !available.has(id)) entries.delete(id);
     for (const row of rows) entries.set(row.id, publicEntry(row));
+    await refreshBuiltinModels(version);
+    if (version !== catalogVersion) return;
     note(libraryStatus, '');
     if (activeModel) showRelated(activeModel);
     social?.catalogUpdated();
@@ -1345,6 +1361,7 @@ function showAccount() {
   byId('account-identity').textContent = user.user_metadata?.display_name || user.email;
   byId('account-heading').focus();
   loadDashboard();
+  loadPendingModeration().catch(() => {});
 }
 
 function updateSession(session) {
@@ -1458,7 +1475,7 @@ async function initCloud() {
     });
     const { data } = await supabase.auth.getSession();
     updateSession(data?.session);
-    listPublicModels();
+    await listPublicModels();
   } catch {
     supabase = undefined;
     note(libraryStatus, 'Облачный каталог временно недоступен. Открыт локальный режим.', true);
@@ -1662,8 +1679,13 @@ function clearEditorPreview() {
 
 function showExistingCover() {
   angleFields.hidden = true;
-  stlCoverButton.hidden = !editing;
-  if (editing) {
+  stlCoverButton.hidden = !editing || editing.builtin;
+  if (editing?.builtin) {
+    const source = editing.cover || editing.placeholder;
+    if (source) coverImage.src = source;
+    coverImage.hidden = !source;
+    addButton.disabled = false;
+  } else if (editing) {
     coverImage.src = cloudFile(editing.cover_path);
     coverImage.hidden = false;
     addButton.disabled = false;
@@ -1671,6 +1693,8 @@ function showExistingCover() {
 }
 
 function openEditor(row) {
+  if (addDialog.open || saving) return;
+  if (row && (row.builtin || row.user_id !== user?.id) && !isModerator()) return;
   editing = row;
   addForm.reset();
   modelGallery.reset(row);
@@ -1679,12 +1703,14 @@ function openEditor(row) {
   note(addStatus, '');
   setAngleReadouts();
   fileInput.required = !row;
-  byId('cloud-model-fields').hidden = !supabase;
+  byId('editor-file-fields').hidden = Boolean(row?.builtin);
+  byId('editor-cover-fields').hidden = Boolean(row?.builtin);
+  byId('cloud-model-fields').hidden = !supabase || Boolean(row?.builtin);
   byId('local-model-fields').hidden = Boolean(supabase);
   byId('add-model-title').textContent = row ? 'Редактировать модель' : 'Добавить модель';
   addButton.textContent = row ? 'Сохранить изменения' : (supabase ? 'Опубликовать модель' : 'Добавить в каталог');
   byId('add-model-help').textContent = row
-    ? 'Вы можете заменить STL, выбрать новое фото или переснять обложку текущей модели.'
+    ? (row.builtin ? 'Измените сведения и галерею встроенной модели.' : 'Вы можете заменить STL, выбрать новое фото или переснять обложку текущей модели.')
     : supabase
       ? 'STL и обложка появятся в общем каталоге. Публикуйте модели, которыми вы вправе делиться.'
       : 'Модель сохранится в этом браузере.';
@@ -1809,9 +1835,43 @@ for (const input of [azimuthInput, elevationInput]) {
   input.addEventListener('change', renderEditorCover);
 }
 
+async function saveBuiltinModel(entry, fields, settings) {
+  if (!isModerator()) throw new Error('Действие доступно администратору.');
+  const previous = entry.builtinSettings;
+  const table = supabase.from('catalog_builtin_models');
+  const ready = await table.select('slug').limit(0);
+  if (ready.error) throw new Error('Выполните catalog/admin-full-access.sql в Supabase.');
+  const owner = previous?.owner_id || user.id;
+  const namespace = previous?.media_namespace || crypto.randomUUID();
+  const media = await modelGallery.prepare(modelGallery.draft(), previous, namespace, {id:owner});
+  const revision = crypto.randomUUID();
+  const payload = {
+    slug: entry.id, title: fields.title, description: fields.description, category: fields.category,
+    ...settings, owner_id: owner, media_namespace: namespace, revision,
+    media_paths: media?.paths ?? previous?.media_paths ?? []
+  };
+  try {
+    const change = previous
+      ? table.update(payload).eq('slug', entry.id).eq('revision', previous.revision).eq('hidden', false)
+      : table.insert(payload);
+    const {data, error} = await change.select('revision').maybeSingle();
+    if (error || data?.revision !== revision) throw new Error();
+  } catch {
+    const {data, error} = await table.select('revision,media_paths').eq('slug', entry.id).maybeSingle();
+    if (error || data?.revision !== revision) {
+      if (!error && media) await modelGallery.remove(media.uploaded.filter(path => !data?.media_paths?.includes(path))).catch(() => {});
+      throw new Error('Не удалось подтвердить сохранение. Обновите каталог и повторите попытку.');
+    }
+  }
+  if (media) {
+    await modelGallery.remove((previous?.media_paths || []).filter(path => !media.paths.includes(path))).catch(() => {});
+  }
+}
+
 async function saveCloudModel(fields, selection, row, account, mediaDraft) {
   const id = row?.id ?? selection?.importDrive?.modelId ?? crypto.randomUUID();
-  const prefix = account.id + '/' + id + '/' + crypto.randomUUID();
+  const assetOwner = row?.user_id || account.id;
+  const prefix = assetOwner + '/' + id + '/' + crypto.randomUUID();
   const storage = supabase.storage.from(BUCKET);
   const uploaded = [];
   let drivePath;
@@ -1832,7 +1892,7 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
 
   const payload = { ...fields };
   try {
-    if (mediaDraft) mediaChange = await modelGallery.prepare(mediaDraft, row, id, account);
+    if (mediaDraft) mediaChange = await modelGallery.prepare(mediaDraft, row, id, {id:assetOwner});
     if (mediaChange) payload.media_paths = mediaChange.paths;
     if (selection?.importDrive) {
       checkImportAccount(account);
@@ -1845,9 +1905,10 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
     } else if (selection?.file) {
       payload.geometry_metrics = selection.metrics;
       if (!selection.file.size || selection.file.size > MAX_FILE_SIZE) throw new Error('STL должен быть не больше 20 МБ.');
-      const result = await drivePost('upload', {modelId:id, name:selection.file.name, base64:await fileBase64(selection.file)});
+      const result = await drivePost('upload', {modelId:id, name:selection.file.name, base64:await fileBase64(selection.file),
+        ...(assetOwner !== account.id ? {moderatorEmail:account.email} : {})});
       if (!/^[A-Za-z0-9_-]{10,160}$/.test(result.fileId || '')) throw new Error('Google Диск вернул неверный ID файла.');
-      payload.stl_path = account.id + '/' + id + '/drive-' + result.fileId + '.stl';
+      payload.stl_path = assetOwner + '/' + id + '/drive-' + result.fileId + '.stl';
       drivePath = payload.stl_path;
     }
     if (selection) {
@@ -1868,7 +1929,7 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
     const table = supabase.from('models');
     const write = () => {
       const change = row
-        ? table.update(payload).eq('id', id).eq('user_id', account.id).eq('updated_at', row.updated_at).eq('deleting', false)
+        ? table.update(payload).eq('id', id).eq('user_id', assetOwner).eq('updated_at', row.updated_at).eq('deleting', false)
         : table.insert({ id, ...payload });
       return change.select('*').maybeSingle();
     };
@@ -1884,7 +1945,7 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
     // Resolve an interrupted response before removing any file that may have been committed.
     const { data: current, error } = await supabase.from('models')
       .select('*')
-      .eq('id', id).eq('user_id', account.id).eq('deleting', false).maybeSingle();
+      .eq('id', id).eq('user_id', assetOwner).eq('deleting', false).maybeSingle();
     const matches = current && Object.entries(payload).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
     const written = [...uploaded, ...(drivePath ? [drivePath] : [])];
     const filesMatch = current && written.length && written.every(path => path === current.stl_path || path === current.cover_path)
@@ -1962,6 +2023,12 @@ addForm.addEventListener('submit', async event => {
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
   try {
     if (supabase) {
+      if (editing?.builtin) {
+        await saveBuiltinModel(editing, fields, settings);
+        await listPublicModels(true);
+        addDialog.close();
+        return;
+      }
       if ('allow_download' in fields && editing?.allow_download === undefined) {
         const {error} = await supabase.from('models').select('allow_download').limit(0);
         if (error) throw new Error('Для настроек витрины выполните catalog/showcase-and-orders.sql в Supabase.');
@@ -1983,30 +2050,42 @@ addForm.addEventListener('submit', async event => {
 });
 
 function askToDelete(row) {
+  if (!row || deleteDialog.open || ownedList.inert) return;
+  if ((row.builtin || row.user_id !== user?.id) && !isModerator()) return;
   pendingDeletion = row;
   deleteDialog.returnValue = '';
-  byId('delete-model-message').textContent = '«' + row.title + '» исчезнет из каталога. STL и обложка будут удалены.';
+  byId('delete-model-message').textContent = '«' + row.title + '» исчезнет из каталога. ' + (row.builtin ? 'Встроенный файл останется в репозитории.' : 'Файлы модели будут удалены из хранилища.');
   deleteDialog.showModal();
 }
 
 deleteDialog.addEventListener('close', async () => {
   if (deleteDialog.returnValue !== 'delete' || !pendingDeletion || !user) return;
   const row = pendingDeletion;
-  const owner = user.id;
+  const owner = row.user_id;
+  const progress = accountPanel.hidden ? libraryStatus : accountStatus;
   pendingDeletion = undefined;
   ownedList.inert = true;
-  note(accountStatus, 'Удаляем модель и её файлы…');
+  note(progress, row.builtin ? 'Скрываем встроенную модель…' : 'Удаляем модель и её файлы…');
   try {
+    if (row.builtin) {
+      if (!isModerator()) throw new Error('Действие доступно администратору.');
+      const {error} = await supabase.from('catalog_builtin_models').upsert({
+        slug: row.id, hidden: true, revision: crypto.randomUUID()
+      }, {onConflict:'slug', defaultToNull:false});
+      if (error) throw new Error('Не удалось скрыть модель. Проверьте catalog/admin-full-access.sql и повторите попытку.');
+      await listPublicModels(true);
+      note(progress, 'Встроенная модель скрыта.');
+      return;
+    }
     const table = supabase.from('models');
     if (!row.deleting) {
       const { data, error } = await table.update({ deleting: true }).eq('id', row.id).eq('user_id', owner)
         .eq('updated_at', row.updated_at).select('id').maybeSingle();
-      if (error || !data) throw new Error();
+      if (error || !data) throw new Error('Не удалось снять модель с публикации. Проверьте права и обновите каталог.');
       row.deleting = true;
       listPublicModels(true);
     }
 
-    if (driveFileId(row.stl_path)) await removeAsset(row.stl_path);
     if (row.media_paths?.length) await modelGallery.remove(row.media_paths);
     const folder = owner + '/' + row.id;
     const storage = supabase.storage.from(BUCKET);
@@ -2021,14 +2100,27 @@ deleteDialog.addEventListener('close', async () => {
       const { error } = await storage.remove(paths.slice(start, start + 100));
       if (error) throw error;
     }
-    const { error } = await supabase.from('models').delete().eq('id', row.id).eq('user_id', owner).eq('deleting', true);
-    if (error) throw error;
+    if (driveFileId(row.stl_path)) {
+      try { await removeAsset(row.stl_path); }
+      catch (error) {
+        if (owner !== user.id && isModerator()) {
+          throw new Error(error.message + ' Проверьте, что Google Apps Script развёрнут с обновлённым Code.gs.');
+        }
+        throw error;
+      }
+    }
+    const {data, error} = await supabase.from('models').delete().eq('id', row.id)
+      .eq('user_id', owner).eq('deleting', true).select('id').maybeSingle();
+    if (error || !data) throw new Error('Не удалось удалить запись модели.');
+    await listPublicModels(true);
     await loadDashboard();
-  } catch {
+    note(progress, 'Модель удалена.');
+  } catch (error) {
     await loadDashboard();
-    note(accountStatus, 'Удаление не завершилось. Проверьте список и повторите попытку.', true);
+    note(progress, (error.message || 'Удаление не завершилось.') + ' Повторное удаление доступно в личном кабинете.', true);
   } finally {
     ownedList.inert = false;
+    void loadPendingModeration().catch(() => {});
   }
 });
 
@@ -2052,6 +2144,7 @@ byId('catalog-sort').addEventListener('change', () => renderCatalog(true));
 modelGallery = initModelGallery({getClient: () => supabase, describeModel, showSpecs, openPrintOrder, openModel});
 
 for (const model of publishedModels) {
+  model.builtin = true;
   model.cover = cachedCover(model);
   entries.set(model.id, model);
   if (model.cover) continue;
@@ -2078,7 +2171,7 @@ async function followLocation() {
     if (dialog.open) dialog.close();
     return;
   }
-  if (!entries.has(id)) {
+  if (!entries.has(id) || publishedModels.some(model => model.id === id)) {
     await Promise.all([localReady, cloudSetup]);
     if (new URL(location.href).searchParams.get('model') !== id) return;
   }

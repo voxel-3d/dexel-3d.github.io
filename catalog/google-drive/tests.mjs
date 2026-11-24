@@ -164,3 +164,18 @@ saveCtx.drivePost=async(action,p)=>{assert.equal(action,'import-claim');return {
 await assert.rejects(saveCtx.saveCloudModel({title:'Imported'},{...selection,importDrive:{fileId:raw.getId(),modelId:model}},null,{...account,email}));
 assert.equal(removed.some(path=>path.includes('/drive-')),false);
 console.log('Import save: database failure cleans cover only, original Drive STL is retained.');
+
+
+// Catalog administrators can replace and retire someone else's file without changing ownership.
+authOnline = true;
+row = {id:model,user_id:other,deleting:false};
+assert.equal(post({...upload,requestId:webcrypto.randomUUID()}).status,403);
+const replacement = post({...upload,requestId:webcrypto.randomUUID(),moderatorEmail:email});
+assert.equal(replacement.ok,true);
+assert.equal(JSON.parse(files.get(replacement.fileId).desc).owner,other);
+row.stl_path = other+'/'+model+'/drive-'+replacement.fileId+'.stl';
+assert.equal(post({action:'delete',fileId:replacement.fileId,moderatorEmail:email}).ok,false);
+row.deleting = true;
+assert.equal(post({action:'delete',fileId:replacement.fileId,moderatorEmail:email}).ok,true);
+assert.equal(files.get(replacement.fileId).trashed,true);
+console.log('Admin Drive: authorized replacement, original ownership and safe staged deletion passed.');

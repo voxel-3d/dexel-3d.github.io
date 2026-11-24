@@ -96,7 +96,7 @@ export function initModelGallery(api) {
     api.showSpecs($('details-specs'),entry.metrics);
     slides=[];
     const cover=entry.cover||entry.placeholder;if(cover)slides.push(cover);
-    if(entry.remote)for(const path of entry.remote.media_paths||[])slides.push(mediaURL(path));
+    if(entry.remote || entry.builtin)for(const path of entry.remote?.media_paths || entry.media_paths || [])slides.push(mediaURL(path));
     else for(const blob of entry.mediaBlobs||[]){const url=URL.createObjectURL(blob);slides.push(url);detailURLs.push(url);}
     $('details-thumbs').replaceChildren();
     slides.forEach((url,i)=>{
