@@ -1,4 +1,4 @@
-import { binarySTL, DRIVE_CHUNK_SIZE, MAX_MODEL_SIZE, modelExtension, modelMime, parse3MF, prepareModelFile } from './model-files.js?v=1';
+import { binarySTL, DRIVE_CHUNK_SIZE, MAX_MODEL_SIZE, modelExtension, modelMime, parse3MF, prepareModelFile } from './model-files.js?v=2';
 import { millimetresPerUnit, normalizeStoredMetrics, scaleSTLMetrics, unitMode } from './stl-units.js?v=1';
 import { BUCKET, loadSupabase, publishedModels, SUPABASE_URL, SUPABASE_ANON_KEY } from './catalog-data.js?v=1';
 import { DEFAULT_COLOR, mountPalette, normalizeColor } from './palette.js?v=1';
@@ -155,8 +155,8 @@ async function readMetrics(entry) {
   const cached = entry.file && localMeasurements.get(entry.file)?.get(modelExtension(entry.file.name) === '3mf' ? 'mm' : mode);
   if (cached) return (entry.metrics = cached);
   const [THREE, { STLLoader }] = await getSTLModules();
-  const mesh = await loadSTL(THREE, STLLoader, entry);
-  disposeModel(mesh);
+  const geometry = await readModelGeometry(THREE, STLLoader, entry);
+  geometry.dispose();
   return entry.metrics;
 }
 
@@ -365,7 +365,7 @@ async function downloadDriveModel(event, entry, name) {
   finally { button.removeAttribute('aria-busy'); button.textContent = label; }
 }
 
-async function loadSTL(THREE, STLLoader, entry, signal) {
+async function readModelGeometry(THREE, STLLoader, entry, signal) {
   let bytes;
   if (entry.file) {
     bytes = await entry.file.arrayBuffer();
@@ -382,7 +382,6 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
   }
 
   let geometry;
-  let originalRadius;
   try {
     const extension = modelExtension(entry.file?.name || entry.remote?.stl_path || entry.fileUrl);
     const is3MF = extension === '3mf';
@@ -396,30 +395,35 @@ async function loadSTL(THREE, STLLoader, entry, signal) {
       }
       geometry = new STLLoader().parse(bytes);
     }
-    const positions = geometry.getAttribute('position');
-    if (!positions || positions.count < 3 || positions.count % 3 !== 0) throw new Error();
+    const positions = geometry?.getAttribute?.('position');
+    if (!positions || positions.count < 3 || positions.count % 3 !== 0 || !positions.array.every(Number.isFinite)) throw new Error();
     geometry.computeBoundingSphere();
     const { center, radius } = geometry.boundingSphere;
     if (!Number.isFinite(radius) || radius <= 0) throw new Error();
     const mode = is3MF ? 'mm' : unitMode(entry.stlUnitMode ?? entry.metrics?.unitMode);
     entry.metrics = measureGeometry(geometry, mode);
     if (!validMetrics(entry.metrics)) throw new Error();
-    originalRadius = radius * millimetresPerUnit(entry.metrics.stlUnit);
     if (entry.file) {
       const cached = localMeasurements.get(entry.file) ?? new Map();
       cached.set(mode, entry.metrics);
       localMeasurements.set(entry.file, cached);
     }
-    geometry.translate(-center.x, -center.y, -center.z);
-    geometry.scale(1 / radius, 1 / radius, 1 / radius);
-    // STL is Z-up. Three.js is Y-up.
-    geometry.rotateX(-Math.PI / 2);
+    return geometry;
   } catch (error) {
     geometry?.dispose();
     signal?.throwIfAborted();
     throw new Error('Не удалось прочитать геометрию. ' + (error.message || 'Проверьте файл STL или 3MF.'));
   }
 
+}
+
+async function loadSTL(THREE, STLLoader, entry, signal) {
+  const geometry = await readModelGeometry(THREE, STLLoader, entry, signal);
+  const {center, radius} = geometry.boundingSphere;
+  const originalRadius = radius * millimetresPerUnit(entry.metrics.stlUnit);
+  geometry.translate(-center.x, -center.y, -center.z);
+  geometry.scale(1 / radius, 1 / radius, 1 / radius);
+  geometry.rotateX(-Math.PI / 2);
   const mesh = new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({
     color: entry.color, roughness: .64, metalness: .06
   }));
@@ -901,7 +905,10 @@ async function openModel(entry, push = true) {
 }
 
 async function loadPartsMesh(THREE, STLLoader, entry, parts, signal) {
-  if (!parts) return loadSTL(THREE, STLLoader, entry, signal);
+  if (!parts?.length) {
+    const mesh = await loadSTL(THREE, STLLoader, entry, signal);
+    return {mesh, metrics:entry.metrics};
+  }
   const meshes = [];
   let totalCoordinates = 0;
   try {
@@ -972,7 +979,8 @@ async function loadViewerPart(entry, parts) {
       getSTLModules(), import('three/addons/controls/OrbitControls.js')
     ]);
     const result = await loadPartsMesh(THREE, STLLoader, entry, parts, load.signal);
-    model = result.mesh || result;
+    if (!result?.mesh?.geometry) throw new Error('Не удалось создать геометрию модели.');
+    model = result.mesh;
     const metrics = result.metrics || entry.metrics;
     load.signal.throwIfAborted();
     const card = cards.get(entry);
@@ -1878,7 +1886,7 @@ function renderParts() {
       el.addEventListener('click', () => {
         if (saving) return;
         action(); partsChanged = true; renderParts();
-        unitsInput.disabled = editorParts[0]?.extension === '3mf';
+        unitsInput.disabled = editorParts.length > 0 && editorParts.every(part => part.extension === '3mf');
         void renderEditorCover();
       });
       row.append(el);
@@ -1915,9 +1923,78 @@ function editorSTL() {
   };
 }
 
+function editorGeometryEntries(first) {
+  if (partEditor.hidden || !editorParts.length) return [first];
+  return editorParts.map(part => ({
+    file: part.file,
+    driveId: part.fileId,
+    remote: part.fileId ? {stl_path: partPath(editing, part)} : undefined,
+    color: first.color,
+    stlUnitMode: first.stlUnitMode
+  }));
+}
+
+function combinePartMetrics(metrics, mode) {
+  if (!metrics.length || !metrics.every(validMetrics)) throw new Error('Не удалось рассчитать габариты всех деталей.');
+  if (metrics.length === 1) return metrics[0];
+  return {
+    width: metrics.reduce((sum, part) => sum + part.width, 0) + (metrics.length - 1) * 5,
+    depth: Math.max(...metrics.map(part => part.depth)),
+    height: Math.max(...metrics.map(part => part.height)),
+    volume: metrics.some(part => part.volume === null) ? null : metrics.reduce((sum, part) => sum + part.volume, 0),
+    unitMode: mode,
+    stlUnit: 'mm',
+    partCount: metrics.length
+  };
+}
+
+async function readEditorMetrics(first, active) {
+  const entries = editorGeometryEntries(first);
+  const metrics = [];
+  for (let i = 0; i < entries.length; i++) {
+    if (!active()) return;
+    try {
+      const measured = await readMetrics(entries[i]);
+      if (!validMetrics(measured)) throw new Error('Габариты не определены.');
+      metrics.push(measured);
+    } catch (error) {
+      const name = entries[i].file?.name || editorParts[i]?.name || 'Деталь ' + (i + 1);
+      throw new Error(name + ': ' + error.message);
+    }
+  }
+  return combinePartMetrics(metrics, first.stlUnitMode);
+}
+
+function fallbackEditorCover(metrics) {
+  const canvas = document.createElement('canvas');
+  canvas.width = COVER_WIDTH;
+  canvas.height = COVER_HEIGHT;
+  const context = canvas.getContext('2d');
+  context.fillStyle = '#17191a';
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.strokeStyle = '#d4af37';
+  context.lineWidth = 2;
+  context.strokeRect(28, 28, canvas.width - 56, canvas.height - 56);
+  context.textAlign = 'center';
+  context.fillStyle = '#d4af37';
+  context.font = 'bold 36px sans-serif';
+  context.fillText('DEXEL 3D', canvas.width / 2, 180);
+  context.fillStyle = '#eee';
+  context.font = '24px sans-serif';
+  context.fillText('3D-модель', canvas.width / 2, 245);
+  context.font = '20px sans-serif';
+  context.fillText([metrics.width,metrics.depth,metrics.height].map(value => decimal.format(value)).join(' × ') + ' мм', canvas.width / 2, 295);
+  return canvas.toDataURL('image/png');
+}
+
 function showEditorMetrics(metrics) {
   const container = byId('upload-specs');
   showSpecs(container, metrics);
+  if (metrics?.partCount > 1) {
+    const hint = document.createElement('span');
+    hint.textContent = 'Деталей: ' + metrics.partCount + ' · габариты при размещении рядом; объём и вес суммарные.';
+    container.append(hint);
+  }
   if (metrics?.unitMode === 'auto' && metrics.stlUnit === 'm') {
     const hint = document.createElement('span');
     hint.textContent = 'Авто: определены метры, применён масштаб ×1000.';
@@ -1927,32 +2004,29 @@ function showEditorMetrics(metrics) {
 
 async function recalculateEditorSTL() {
   if (saving) return;
-  const stl = editorSTL();
-  if (!stl.file && !editing) {
-    note(addStatus, 'Сначала выберите файл STL.', true);
+  const first = editorSTL();
+  if (!first.file && !editing) {
+    note(addStatus, 'Сначала выберите файл STL или 3MF.', true);
     return;
   }
-  // A new file without a ready preview must still go through cover generation.
-  if (stl.file && draft?.file !== stl.file) {
+  if (first.file || draft || partsChanged) {
     await renderEditorCover();
     return;
   }
-
   const revision = ++previewRevision;
-  const model = editing;
+  const active = () => revision === previewRevision && addDialog.open;
   recalculatedMetrics = undefined;
   addButton.disabled = true;
-  note(addStatus, 'Пересчитываем габариты и вес из STL…');
+  note(addStatus, 'Пересчитываем габариты и вес всех деталей…');
   try {
-    const metrics = await readMetrics(stl);
-    if (revision !== previewRevision || !addDialog.open || editing !== model) return;
+    const metrics = await readEditorMetrics(first, active);
+    if (!active()) return;
     recalculatedMetrics = metrics;
-    if (draft) draft.metrics = metrics;
     showEditorMetrics(metrics);
-    addButton.disabled = !stl.file && !editing;
+    addButton.disabled = false;
     note(addStatus, 'Габариты и вес пересчитаны. Сохраните модель, чтобы применить изменения.');
   } catch (error) {
-    if (revision !== previewRevision || !addDialog.open || editing !== model) return;
+    if (!active()) return;
     showEditorMetrics();
     note(addStatus, error.message || 'Не удалось пересчитать STL.', true);
   }
@@ -2039,6 +2113,7 @@ function openEditor(row) {
   partEditor.hidden = !supabase || (!isModerator() && !row?.stl_files?.length) || Boolean(row?.builtin);
   editorParts = partEditor.hidden ? [] : storedParts(row).map(part => ({...part}));
   partsChanged = false;
+  if (editorParts.length) unitsInput.disabled = editorParts.every(part => part.extension === '3mf');
   renderParts();
   fileInput.multiple = !partEditor.hidden;
   fileInput.required = partEditor.hidden && !row;
@@ -2129,29 +2204,40 @@ async function renderEditorCover() {
     elevation: Number(elevationInput.value)
   };
   const active = () => version === previewRevision && addDialog.open;
-  note(addStatus, photo ? 'Готовим фото…' : 'Создаём обложку…');
+  note(addStatus, 'Рассчитываем габариты и вес всех деталей…');
   try {
-    const cover = photo ? await photoCover(photo) : await queueCover(selection, active);
+    // Validate every source before touching the renderer. The cover still uses the first part.
+    const metrics = (file || editing || editorParts.length) ? await readEditorMetrics(selection, active) : null;
     if (!active()) return;
-    if (photo && (file || editing)) selection.metrics = await readMetrics(selection);
-    if (!active()) return;
-    recalculatedMetrics = selection.metrics;
-    showEditorMetrics(selection.metrics);
+    recalculatedMetrics = metrics;
+    showEditorMetrics(metrics);
+    let cover;
+    let fallback = false;
+    try {
+      cover = photo ? await photoCover(photo) : await queueCover({...selection}, active);
+      if (!active()) return;
+      if (!cover?.startsWith('data:image/png;base64,')) throw new Error('Обложка не создана.');
+    } catch (error) {
+      if (!active()) return;
+      if (!metrics || photo) throw error;
+      // WebGL, SVG or GPU failures do not invalidate an already measured model.
+      cover = fallbackEditorCover(metrics);
+      fallback = true;
+    }
     const bytes = Uint8Array.from(atob(cover.split(',')[1]), character => character.charCodeAt(0));
-    if (photo) selection.color = editorPalette.value;
-    draft = { ...selection, cover, preservePhotoRatio: Boolean(photo), png: new Blob([bytes], { type: 'image/png' }) };
+    draft = {...selection, metrics, cover, preservePhotoRatio:Boolean(photo), png:new Blob([bytes], {type:'image/png'})};
     coverImage.src = cover;
     coverImage.hidden = false;
     coverDownload.href = URL.createObjectURL(draft.png);
-    const name = file?.name || photo?.name || 'dexel-model';
-    coverDownload.download = name.replace(/\.[^.]+$/, '') + '-cover.png';
+    coverDownload.download = (file?.name || photo?.name || 'dexel-model').replace(/\.[^.]+$/, '') + '-cover.png';
     coverDownload.hidden = false;
-    addButton.disabled = !file && !editing;
-    note(addStatus, addButton.disabled ? 'Фото готово. Добавьте STL-файл модели.' : 'Обложка готова.');
+    addButton.disabled = !metrics || (!file && !editing);
+    note(addStatus, addButton.disabled ? 'Фото готово. Добавьте STL-файл модели.' :
+      fallback ? 'Габариты и вес рассчитаны. 3D-обложка недоступна, используется временная обложка. Можно публиковать.' :
+      'Габариты, вес и обложка готовы. Можно публиковать.');
   } catch (error) {
     if (active()) {
-      showEditorMetrics(selection.metrics);
-      note(addStatus, error instanceof Error ? error.message : 'Не удалось создать обложку.', true);
+      note(addStatus, error instanceof Error ? error.message : 'Не удалось подготовить модель.', true);
     }
   }
 }
@@ -2182,7 +2268,7 @@ fileInput.addEventListener('change', () => {
     editorParts.push(...files.map(file => ({file, name:file.name.replace(/\.[^.]+$/, '').slice(0, 120), extension:modelExtension(file.name)})));
     partsChanged = true;
     renderParts();
-    unitsInput.disabled = modelExtension(editorParts[0]?.file?.name || editorParts[0]?.extension && 'file.' + editorParts[0].extension) === '3mf';
+    unitsInput.disabled = editorParts.every(part => part.extension === '3mf');
     void renderEditorCover();
     return;
   }
@@ -2448,7 +2534,7 @@ addForm.addEventListener('submit', async event => {
     fields.original_author = author || null;
     fields.source_url = safeSource;
   }
-  if (recalculatedMetrics && (editing || recalculatedMetrics.unitMode !== 'auto')) fields.geometry_metrics = recalculatedMetrics;
+  if (recalculatedMetrics && (editing || recalculatedMetrics.unitMode !== 'auto' || recalculatedMetrics.partCount > 1)) fields.geometry_metrics = recalculatedMetrics;
   const settings = readShowcaseFields(editorShowcase);
   if (!supabase || editing?.is_featured !== undefined || settings.is_featured ||
       settings.featured_rank !== 100 || !settings.allow_download) Object.assign(fields, settings);
@@ -2530,7 +2616,7 @@ addForm.addEventListener('submit', async event => {
     saving = false;
     publicCountFields.disabled = publicCountFields.hidden || !isModerator();
     for (const control of editorControls) control.disabled = false;
-    unitsInput.disabled = (editorParts[0]?.extension || modelExtension(fileInput.files[0]?.name || editing?.stl_path)) === '3mf';
+    unitsInput.disabled = editorParts.length ? editorParts.every(part => part.extension === '3mf') : modelExtension(fileInput.files[0]?.name || editing?.stl_path) === '3mf';
     addButton.disabled = !editing && !draft?.file;
   }
 });
