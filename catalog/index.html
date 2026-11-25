@@ -9,7 +9,7 @@
   <link rel="canonical" href="https://dexel3d.ru/catalog/">
   <link rel="icon" type="image/png" href="../assets/dexel-icon.png?v=gold">
   <link rel="stylesheet" href="../style.css?v=questions">
-  <link rel="stylesheet" href="style.css?v=cover-fit-1">
+  <link rel="stylesheet" href="style.css?v=model-parts-1">
   <script type="importmap">
     {
       "imports": {
@@ -18,7 +18,7 @@
       }
     }
   </script>
-  <script type="module" src="script.js?v=loaded-specs-1"></script>
+  <script type="module" src="script.js?v=model-parts-1"></script>
 <link rel="stylesheet" href="../site-header.css?v=1">
 <script src="../site-header.js?v=1" defer></script>
 <link rel="stylesheet" href="../legal.css?v=2">
@@ -215,7 +215,7 @@
     </header>
     <form id="add-model-form" class="add-model-form"><div class="dexel-consents"><label><input type="checkbox" id="add-model-form-consent" name="personal_data_consent" required data-personal-consent> <span>Я согласен на обработку персональных данных в соответствии с <button type="button" data-legal-dialog="privacy-dialog">Политикой конфиденциальности</button> для ответа, расчёта и исполнения заказа / работы аккаунта.</span></label><label><input type="checkbox" name="offer_acceptance" required> <span>Я принимаю условия <button type="button" data-legal-dialog="offer-dialog">Публичной оферты</button> и <button type="button" data-legal-dialog="rights-dialog">правил каталога</button>.</span></label></div>
       <div id="editor-file-fields"><label for="library-file">Файл STL или 3MF, до 50 МБ</label>
-      <input id="library-file" name="file" type="file" accept=".stl,.3mf,model/stl,model/3mf,application/vnd.ms-package.3dmanufacturing-3dmodel+xml" required autofocus></div>
+      <input id="library-file" name="file" type="file" multiple accept=".stl,.3mf,model/stl,model/3mf,application/vnd.ms-package.3dmanufacturing-3dmodel+xml" required autofocus><fieldset id="part-editor" hidden><legend>Детали модели</legend><div id="part-list"></div><button id="add-part" type="button" class="catalog-card-button">+ Добавить ещё STL</button></fieldset></div>
       <label for="library-title">Название</label>
       <input id="library-title" name="title" type="text" maxlength="100" required>
       <label for="library-description">Описание (необязательно)</label>
@@ -367,7 +367,7 @@
         <button class="model-close" type="submit" aria-label="Закрыть 3D-просмотр" autofocus>×</button>
       </form>
     </header>
-    <div id="model-stage" class="model-stage" aria-describedby="model-help">
+    <div id="viewer-parts" class="viewer-parts" aria-label="Детали модели" hidden></div><div id="model-stage" class="model-stage" aria-describedby="model-help">
       <img id="model-preview" alt="" hidden>
       <p id="model-status" role="status"></p>
     </div>

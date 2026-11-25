@@ -309,8 +309,8 @@ function doPost(e) {
       } else if (body.action === 'delete') {
         const item = file_(body.fileId);
         if (item.meta.owner !== owner) moderator_(account, body.moderatorEmail);
-        const rows = api_('/rest/v1/models?select=stl_path,deleting&id=eq.' + item.meta.model, body.accessToken);
-        if (rows.some(row => row.stl_path === path_(body.fileId, item.meta) && !row.deleting)) throw new Error('Сначала снимите модель с публикации или сохраните новый STL.');
+        const rows = api_('/rest/v1/models?select=*&id=eq.' + item.meta.model, body.accessToken);
+        if (rows.some(row => (row.stl_path === path_(body.fileId, item.meta) || (Array.isArray(row.stl_files) && row.stl_files.some(part => part.fileId === body.fileId))) && !row.deleting)) throw new Error('Сначала снимите модель с публикации или сохраните новый STL.');
         item.file.setTrashed(true);
         result = {ok:true, fileId:body.fileId, deleted:true};
       } else throw new Error('Неизвестное действие.');
@@ -347,7 +347,13 @@ function doGet(e) {
     const item = file_(p.id);
     if (item.file.isTrashed()) throw new Error('Файл удалён.');
     const rows = api_('/rest/v1/models?select=id&deleting=eq.false&stl_path=eq.' + encodeURIComponent(path_(p.id, item.meta)));
-    if (!rows.length) throw new Error('Модель ещё не опубликована или уже удалена.');
+    if (!rows.length) {
+      const models = api_('/rest/v1/models?select=*&deleting=eq.false&id=eq.' + item.meta.model);
+      if (!models.some(row => row.id === item.meta.model && row.user_id === item.meta.owner &&
+          Array.isArray(row.stl_files) && row.stl_files.some(part => part.fileId === p.id))) {
+        throw new Error('Модель ещё не опубликована или уже удалена.');
+      }
+    }
     return output_(modelRead_(item.file,p,item.meta.originalName),p.callback);
   } catch (err) { return output_({ok:false, status:err.status || 400, code:err.code, error:err.message || 'Не удалось прочитать STL.'}, p.callback); }
 }

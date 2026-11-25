@@ -26,7 +26,7 @@ const ctx=vm.createContext({console,
   let result,code=200;
   if(!authOnline){code=503;result={};}
   else if(url.includes('/auth/v1/user')) {result={id:who,email:who===owner?'igorkruk747@gmail.com':'ordinary@example.com',email_confirmed_at:'now'};if(!who)code=401;}
-  else {result=row?[row]:[]; if(url.includes('deleting=eq.false')&&row?.deleting)result=[];}
+  else {result=row?[row]:[]; if(url.includes('deleting=eq.false')&&row?.deleting)result=[]; if(url.includes('&stl_path=eq.')&&decodeURIComponent(url.split('&stl_path=eq.')[1])!==row?.stl_path)result=[];}
   return {getResponseCode:()=>code,getContentText:()=>JSON.stringify(result)};
  }},
  ContentService:{MimeType:{JSON:'json',JAVASCRIPT:'js'},createTextOutput:text=>({text,setMimeType(){return this}})},
@@ -99,7 +99,7 @@ let newPayload;
 function query(){
  let mode='read', payload;
  const q={insert(x){mode='insert';payload=x;return q},update(x){mode='update';payload=x;return q},
- eq(){return q},select(){return q},async maybeSingle(){
+ eq(){return q},select(){return q},limit(){return Promise.resolve({error:null})},async maybeSingle(){
  if(mode==='read')return {data:rows.get(model)||null,error:null};
  newPayload=payload;
  if(failDB)return {data:null,error:{code:'failed'}};
@@ -112,6 +112,7 @@ const saveCtx=vm.createContext({console,modelExtension,crypto:{randomUUID:()=>mo
  uploadModelFile:async()=>{uploadedStl++;return {fileId:'Drive_new_01'}},
  fileBase64:async()=>bytes.toString('base64'),webpCover:async()=>({arrayBuffer:async()=>new ArrayBuffer(8)}),
  removeAsset:async path=>removed.push(path),note(){}});
+vm.runInContext(source.slice(source.indexOf('function driveFileId('),source.indexOf('function driveEndpoint(')),saveCtx);
 vm.runInContext(source.slice(source.indexOf('async function saveCloudModel('),source.indexOf('async function saveLocalModel(')),saveCtx);
 const selection={file:{name:'part.stl',size:134},png:{},metrics:{width:1},azimuth:45,elevation:40};
 const account={id:owner};
@@ -180,6 +181,37 @@ row.deleting = true;
 assert.equal(post({action:'delete',fileId:replacement.fileId,moderatorEmail:email}).ok,true);
 assert.equal(files.get(replacement.fileId).trashed,true);
 console.log('Admin Drive: authorized replacement, original ownership and safe staged deletion passed.');
+
+// Secondary file access is scoped to a published card and must block destructive cleanup.
+row={id:model,user_id:owner,deleting:false};
+const partA=post({...upload,requestId:webcrypto.randomUUID()});
+const partB=post({...upload,requestId:webcrypto.randomUUID()});
+assert.equal(partA.ok,true);assert.equal(partB.ok,true);
+row.stl_path=owner+'/'+model+'/drive-'+partA.fileId+'.stl';
+assert.equal(get({id:partB.fileId}).ok,false);
+row.stl_files=[{name:'A',fileId:partA.fileId},{name:'B',fileId:partB.fileId}];
+assert.equal(get({id:partB.fileId}).base64,bytes.toString('base64'));
+assert.equal(post({action:'delete',fileId:partB.fileId}).ok,false);
+row.stl_files.pop();
+assert.equal(post({action:'delete',fileId:partB.fileId}).ok,true);
+
+// Multipart publication uses the first path for legacy clients and uploads every part.
+failDB=false;failCover=false;ambiguousDB=false;rows.clear();removed=[];
+let partCount=0;
+saveCtx.uploadModelFile=async()=>({fileId:'Drive_multi_'+(++partCount)});
+const multi={...selection,parts:[{file:selection.file,name:'Основа',extension:'stl'},{file:selection.file,name:'Крышка',extension:'stl'}]};
+await saveCtx.saveCloudModel({title:'Kit',user_id:owner},multi,null,account);
+assert.equal(partCount,2);
+assert.equal(newPayload.stl_files.length,2);
+assert.equal(newPayload.stl_files[1].name,'Крышка');
+assert.match(newPayload.stl_path,/Drive_multi_1.stl$/);
+assert.equal(newPayload.stl_files[1].url,'https://drive.google.com/file/d/Drive_multi_2/view');
+failCover=true;removed=[];
+await assert.rejects(saveCtx.saveCloudModel({title:'Kit'},multi,null,account));
+assert.equal(removed.filter(path=>path.includes('drive-Drive_multi_')).length,2);
+failCover=false;
+console.log('Multipart publication, secondary-file read, deletion protection and upload rollback passed.');
+
 
 // A 50 MiB model should never pass through a single Base64 request.
 const savedFetch = ctx.UrlFetchApp.fetch;

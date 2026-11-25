@@ -29,6 +29,7 @@ const ctx=vm.createContext({console,TextEncoder,crypto:webcrypto,Blob,File,Uint8
  }
 });
 vm.runInContext(source.slice(source.indexOf('async function readDriveBytes('),source.indexOf('async function drivePost(')),ctx);
+vm.runInContext(source.slice(source.indexOf('function storedParts('),source.indexOf('function driveEndpoint(')),ctx);
 vm.runInContext(source.slice(source.indexOf('let driveImportRunning ='),source.indexOf('const cloudSetup = initCloud();')),ctx);
 ctx.updateModeratorPanel();assert.equal(byId('drive-import-panel').hidden,true);
 const submit=()=>byId('drive-import-form').listeners.submit({preventDefault(){}});

@@ -164,6 +164,22 @@ async function readMetrics(entry) {
 function driveFileId(path = '') {
   return path.match(/\/drive-([A-Za-z0-9_-]{10,160})\.(?:stl|3mf)$/)?.[1];
 }
+function storedParts(row) {
+  if (!row) return [];
+  if (Array.isArray(row.stl_files) && row.stl_files.length) {
+    return row.stl_files.filter(part => /^[A-Za-z0-9_-]{10,160}$/.test(part.fileId || ''));
+  }
+  const fileId = driveFileId(row.stl_path);
+  return fileId ? [{ name: row.title || 'Деталь 1', fileId, url: 'https://drive.google.com/file/d/' + fileId + '/view', extension: modelExtension(row.stl_path) }] : [];
+}
+function partPath(row, part) {
+  return row.user_id + '/' + row.id + '/drive-' + part.fileId + '.' + (part.extension || 'stl');
+}
+function rowFilePaths(row) {
+  if (!row) return [];
+  const extra = row.stl_files?.length && row.id && row.user_id ? storedParts(row).map(part => partPath(row, part)) : [];
+  return [...new Set([row.stl_path, ...extra].filter(Boolean))];
+}
 function driveEndpoint() {
   if (!/^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/.test(GOOGLE_DRIVE_UPLOAD_URL)) {
     throw new Error('Загрузка STL пока не настроена. Укажите GOOGLE_DRIVE_UPLOAD_URL веб-приложения Google Apps Script.');
@@ -862,6 +878,91 @@ async function openModel(entry, push = true) {
   if (!dialog.open) dialog.showModal();
   dialog.scrollTop = 0;
 
+  const parts = storedParts(entry.remote);
+  const panel = byId('viewer-parts');
+  panel.replaceChildren();
+  panel.hidden = parts.length < 2;
+  function choosePart(index) {
+    for (const button of panel.children) button.setAttribute('aria-pressed', String(button.dataset.index === String(index)));
+    return loadViewerPart(entry, parts.length > 1 ? (index === -1 ? parts : [parts[index]]) : null);
+  }
+  if (parts.length > 1) {
+    const addButton = (name, index) => {
+      const button = document.createElement('button');
+      button.type = 'button'; button.className = 'catalog-card-button';
+      button.textContent = name; button.dataset.index = String(index);
+      button.addEventListener('click', () => choosePart(index));
+      panel.append(button);
+    };
+    parts.forEach((part, index) => addButton(part.name || 'Деталь ' + (index + 1), index));
+    addButton('Все детали вместе', -1);
+  }
+  await choosePart(0);
+}
+
+async function loadPartsMesh(THREE, STLLoader, entry, parts, signal) {
+  if (!parts) return loadSTL(THREE, STLLoader, entry, signal);
+  const meshes = [];
+  let totalCoordinates = 0;
+  try {
+    for (const part of parts) {
+      const sub = {driveId:part.fileId, remote:{stl_path:partPath(entry.remote, part)},
+        color:viewerPalette.value, stlUnitMode:entry.metrics?.unitMode};
+      const mesh = await loadSTL(THREE, STLLoader, sub, signal);
+      meshes.push({mesh,metrics:sub.metrics});
+      totalCoordinates += mesh.geometry.getAttribute('position').array.length;
+      if (totalCoordinates > 18000000) throw new Error('Слишком много треугольников для общего просмотра. Выберите отдельную деталь.');
+    }
+    if (meshes.length === 1) {
+      const result = meshes.pop();
+      return {mesh:result.mesh,metrics:result.metrics};
+    }
+    // Separate parts on one plane in real millimetres, so separately centered exports do not overlap.
+    const positions = [];
+    let offset = 0;
+    let totalVolume = 0;
+    for (const {mesh,metrics} of meshes) {
+      signal.throwIfAborted();
+      const geometry = mesh.geometry;
+      const radius = mesh.userData.mmPerUnit;
+      geometry.scale(radius,radius,radius);
+      geometry.computeBoundingBox();
+      const box = geometry.boundingBox;
+      geometry.translate(offset-box.min.x,-box.min.y,-(box.min.z+box.max.z)/2);
+      offset += box.max.x-box.min.x+5;
+      positions.push(geometry.getAttribute('position').array);
+      totalVolume = totalVolume === null || metrics.volume === null ? null : totalVolume + metrics.volume;
+    }
+    const count = positions.reduce((sum,array)=>sum+array.length,0);
+    if (count > 18000000) throw new Error('Слишком много треугольников для общего просмотра. Выберите отдельную деталь.');
+    const data = new Float32Array(count);
+    let start = 0;
+    for (const array of positions) {data.set(array,start);start+=array.length;}
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute('position',new THREE.BufferAttribute(data,3));
+    geometry.computeVertexNormals();
+    geometry.computeBoundingBox();
+    const size = geometry.boundingBox.getSize(new THREE.Vector3());
+    geometry.computeBoundingSphere();
+    const {center,radius} = geometry.boundingSphere;
+    geometry.translate(-center.x,-center.y,-center.z);
+    geometry.scale(1/radius,1/radius,1/radius);
+    const mesh = new THREE.Mesh(geometry,new THREE.MeshStandardMaterial({color:viewerPalette.value,roughness:.64,metalness:.06}));
+    mesh.userData.mmPerUnit = radius;
+    return {mesh,metrics:{width:size.x,depth:size.z,height:size.y,volume:totalVolume}};
+  } finally {
+    meshes.forEach(({mesh})=>disposeModel(mesh));
+  }
+}
+
+async function loadViewerPart(entry, parts) {
+  currentLoad?.abort();
+  viewer?.dispose();
+  viewer = undefined;
+  preview.hidden = !preview.hasAttribute('src');
+  status.textContent = 'Загружаем 3D-модель…';
+  enableActions(false);
+  showSpecs(byId('viewer-specs'), entry.metrics, false);
   const load = new AbortController();
   currentLoad = load;
   let model;
@@ -870,7 +971,9 @@ async function openModel(entry, push = true) {
     const [[THREE, { STLLoader }], { OrbitControls }] = await Promise.all([
       getSTLModules(), import('three/addons/controls/OrbitControls.js')
     ]);
-    model = await loadSTL(THREE, STLLoader, entry, load.signal);
+    const result = await loadPartsMesh(THREE, STLLoader, entry, parts, load.signal);
+    model = result.mesh || result;
+    const metrics = result.metrics || entry.metrics;
     load.signal.throwIfAborted();
     const card = cards.get(entry);
     if (card) showCardMeta(card, entry);
@@ -879,8 +982,8 @@ async function openModel(entry, push = true) {
     viewer = createViewer(THREE, OrbitControls, renderer, model, entry.title, () => {
       showError('3D-просмотр прервался. Закройте окно и откройте его снова.');
     });
-    verifiedModelSpecs.add(entry);
-    showSpecs(byId('viewer-specs'), entry.metrics);
+    if (!parts || parts[0].fileId === entry.driveId) verifiedModelSpecs.add(entry);
+    showSpecs(byId('viewer-specs'), metrics);
     preview.hidden = true;
     status.textContent = '';
     enableActions(true);
@@ -1052,7 +1155,7 @@ function createCard(entry) {
       ? entry.title.replace(/[^\p{L}\p{N}._ -]/gu, '_').slice(0, 80) + '.' + (modelExtension(entry.remote.stl_path) || 'stl')
       : entry.file?.name || entry.fileUrl.split('/').at(-1).split('?')[0];
     download.download = fileName;
-    download.textContent = modelExtension(fileName) === '3mf' ? 'Скачать 3MF' : 'Скачать STL';
+    download.textContent = storedParts(entry.remote).length > 1 ? 'Скачать первую деталь' : modelExtension(fileName) === '3mf' ? 'Скачать 3MF' : 'Скачать STL';
     if (entry.driveId) {
       download.href = 'https://drive.google.com/file/d/' + entry.driveId + '/view';
       download.addEventListener('click', event => downloadDriveModel(event, entry, fileName));
@@ -1650,9 +1753,9 @@ async function existingDriveFiles(account) {
   const found = new Set();
   for (let start=0;;start+=500) {
     checkImportAccount(account);
-    const {data,error} = await supabase.from('models').select('id,stl_path').order('id').range(start,start+499);
+    const {data,error} = await supabase.from('models').select('*').order('id').range(start,start+499);
     if (error) throw new Error('Не удалось проверить существующие модели. Импорт не начат.');
-    for (const row of data) { const id=driveFileId(row.stl_path); if(id)found.add(id); }
+    for (const row of data) for (const path of rowFilePaths(row)) { const id=driveFileId(path); if(id)found.add(id); }
     if (data.length<500) return found;
   }
 }
@@ -1753,6 +1856,42 @@ const closeEditor = byId('close-add-model');
 const deleteDialog = byId('delete-model-dialog');
 
 let editing;
+let editorParts = [];
+let partsChanged = false;
+const partEditor = byId('part-editor');
+function renderParts() {
+  const list = byId('part-list');
+  list.replaceChildren();
+  editorParts.forEach((part, index) => {
+    const row = document.createElement('div');
+    row.className = 'part-row';
+    const name = document.createElement('input');
+    name.value = part.name;
+    name.maxLength = 120;
+    name.setAttribute('aria-label', 'Название детали ' + (index + 1));
+    name.addEventListener('input', () => { part.name = name.value; partsChanged = true; if (!draft) void renderEditorCover(); });
+    row.append(name);
+    const button = (text, label, action, disabled = false) => {
+      const el = document.createElement('button');
+      el.type = 'button'; el.textContent = text;
+      el.setAttribute('aria-label', label); el.disabled = disabled;
+      el.addEventListener('click', () => {
+        if (saving) return;
+        action(); partsChanged = true; renderParts();
+        unitsInput.disabled = editorParts[0]?.extension === '3mf';
+        void renderEditorCover();
+      });
+      row.append(el);
+    };
+    const move = delta => { const target = index + delta; [editorParts[index], editorParts[target]] = [editorParts[target], editorParts[index]]; };
+    button('↑', 'Выше', () => move(-1), index === 0);
+    button('↓', 'Ниже', () => move(1), index === editorParts.length - 1);
+    button('×', 'Удалить деталь', () => editorParts.splice(index, 1));
+    list.append(row);
+  });
+}
+byId('add-part').addEventListener('click', () => fileInput.click());
+
 let draft;
 let pendingDeletion;
 let saving = false;
@@ -1762,12 +1901,13 @@ const unitsInput = byId('stl-units');
 const recalculateButton = byId('recalculate-stl');
 
 function editorSTL() {
-  const file = fileInput.files[0];
-  const driveId = !file && editing ? driveFileId(editing.stl_path) : undefined;
+  const first = !partEditor.hidden && editorParts[0];
+  const file = first?.file || (partEditor.hidden ? fileInput.files[0] : undefined);
+  const driveId = first?.fileId || (!file && editing ? driveFileId(editing.stl_path) : undefined);
   return {
     file,
     driveId,
-    remote: !file && editing?.stl_path ? {stl_path: editing.stl_path} : undefined,
+    remote: !file && editing?.stl_path ? {stl_path: first?.fileId ? partPath(editing, first) : editing.stl_path} : undefined,
     fileUrl: !file && editing && !driveId
       ? (editing.builtin ? editing.fileUrl : cloudFile(editing.stl_path)) : undefined,
     color: editorPalette.value,
@@ -1820,7 +1960,7 @@ async function recalculateEditorSTL() {
 
 recalculateButton.addEventListener('click', () => void recalculateEditorSTL());
 unitsInput.addEventListener('change', () => {
-  if (editing || fileInput.files.length) void recalculateEditorSTL();
+  if (editing || editorParts.length || fileInput.files.length) void recalculateEditorSTL();
 });
 
 function setAngleReadouts() {
@@ -1896,7 +2036,12 @@ function openEditor(row) {
   clearEditorPreview();
   note(addStatus, '');
   setAngleReadouts();
-  fileInput.required = !row;
+  partEditor.hidden = !supabase || (!isModerator() && !row?.stl_files?.length) || Boolean(row?.builtin);
+  editorParts = partEditor.hidden ? [] : storedParts(row).map(part => ({...part}));
+  partsChanged = false;
+  renderParts();
+  fileInput.multiple = !partEditor.hidden;
+  fileInput.required = partEditor.hidden && !row;
   byId('editor-file-fields').hidden = Boolean(row?.builtin);
   byId('editor-cover-fields').hidden = Boolean(row?.builtin);
   byId('cloud-model-fields').hidden = !supabase || Boolean(row?.builtin);
@@ -1962,7 +2107,8 @@ async function photoCover(photo) {
 
 async function renderEditorCover() {
   clearEditorPreview();
-  const file = fileInput.files[0];
+  const file = editorSTL().file;
+  if (!partEditor.hidden && partsChanged && !editorParts.length) {note(addStatus, "Добавьте хотя бы одну деталь.", true);return;}
   const photo = photoInput.files[0];
   angleFields.hidden = Boolean(photo) || (!file && !editing);
   stlCoverButton.hidden = !photo || Boolean(editing?.builtin);
@@ -2016,7 +2162,7 @@ const editorPalette = mountPalette(editorPaletteField, () => {
     if (draft) draft.color = editorPalette.value;
     return;
   }
-  if (fileInput.files.length || editing) void renderEditorCover();
+  if (editorParts.length || fileInput.files.length || editing) void renderEditorCover();
 });
 const recapture = byId('recapture-cover');
 recapture.addEventListener('click', () => {
@@ -2025,6 +2171,21 @@ recapture.addEventListener('click', () => {
 });
 
 fileInput.addEventListener('change', () => {
+  if (!partEditor.hidden) {
+    const files = [...fileInput.files];
+    fileInput.value = '';
+    if (files.some(file => !modelExtension(file.name) || !file.size || file.size > MAX_FILE_SIZE)) {
+      note(addStatus, 'Каждая деталь должна быть STL или 3MF до 50 МБ.', true); return;
+    }
+    if (!files.length) return;
+    if (editorParts.length + files.length > 50) { note(addStatus, 'До 50 деталей в карточке.', true); return; }
+    editorParts.push(...files.map(file => ({file, name:file.name.replace(/\.[^.]+$/, '').slice(0, 120), extension:modelExtension(file.name)})));
+    partsChanged = true;
+    renderParts();
+    unitsInput.disabled = modelExtension(editorParts[0]?.file?.name || editorParts[0]?.extension && 'file.' + editorParts[0].extension) === '3mf';
+    void renderEditorCover();
+    return;
+  }
   unitsInput.disabled = modelExtension(fileInput.files[0]?.name || editing?.stl_path) === '3mf';
   if (fileInput.files.length || photoInput.files.length || !editing) renderEditorCover();
   else {
@@ -2133,6 +2294,12 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
   }
 
   const payload = { ...fields };
+  const partDraft = selection?.parts;
+  const partUploads = [];
+  if (partDraft) {
+    const {error} = await supabase.from('models').select('stl_files').limit(0);
+    if (error) throw new Error('Выполните catalog/model-parts.sql в Supabase.');
+  }
   if (selection?.color) payload.cover_color = normalizeColor(selection.color);
   if ('cover_color' in payload && row?.cover_color === undefined) {
     const {error} = await supabase.from('models').select('cover_color').limit(0);
@@ -2152,6 +2319,23 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
       payload.geometry_metrics = selection.metrics;
       payload.stl_path = account.id + '/' + id + '/drive-' + claim.fileId + '.' + modelExtension(selection.file.name);
       // Imported sources must NEVER be trashed when a cover or database write fails.
+    } else if (partDraft) {
+      const savedParts = [];
+      for (const part of partDraft) {
+        let fileId = part.fileId;
+        if (part.file) {
+          const result = await uploadModelFile(part.file, {modelId:id,
+            ...(assetOwner !== account.id ? {moderatorEmail:account.email} : {})});
+          fileId = result.fileId;
+          if (!/^[A-Za-z0-9_-]{10,160}$/.test(fileId || '')) throw new Error('Google Диск вернул неверный ID файла.');
+          partUploads.push(partPath({id,user_id:assetOwner}, {...part,fileId}));
+        }
+        savedParts.push({name:part.name.trim() || 'Деталь',fileId,extension:part.extension || 'stl',
+          url:'https://drive.google.com/file/d/' + fileId + '/view'});
+      }
+      payload.stl_files = savedParts;
+      payload.stl_path = partPath({id,user_id:assetOwner},savedParts[0]);
+      if (selection.metrics) payload.geometry_metrics = selection.metrics;
     } else if (selection?.file) {
       payload.geometry_metrics = selection.metrics;
       const extension = modelExtension(selection.file.name);
@@ -2171,7 +2355,7 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
       await upload(payload.cover_path, await webpCover(selection.png, selection.preservePhotoRatio), 'image/webp');
     }
   } catch (error) {
-    await cleanup([...uploaded, ...(drivePath ? [drivePath] : [])]);
+    await cleanup([...uploaded, ...partUploads, ...(drivePath ? [drivePath] : [])]);
     if (mediaChange) await modelGallery.remove(mediaChange.uploaded).catch(() => {});
     throw error;
   }
@@ -2200,14 +2384,14 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
       .select('*')
       .eq('id', id).eq('user_id', assetOwner).eq('deleting', false).maybeSingle();
     const matches = current && Object.entries(payload).every(([key, value]) => JSON.stringify(current[key]) === JSON.stringify(value));
-    const written = [...uploaded, ...(drivePath ? [drivePath] : [])];
-    const filesMatch = current && written.length && written.every(path => path === current.stl_path || path === current.cover_path)
+    const written = [...uploaded, ...partUploads, ...(drivePath ? [drivePath] : [])];
+    const filesMatch = current && written.length && written.every(path => rowFilePaths(current).includes(path) || path === current.cover_path)
       && (!mediaChange || JSON.stringify(current.media_paths) === JSON.stringify(mediaChange.paths));
     if (!error && (matches || filesMatch)) {
       saved = current;
     } else {
       if (!error && written.length) {
-        await cleanup(written.filter(path => path !== current?.stl_path && path !== current?.cover_path));
+        await cleanup(written.filter(path => !rowFilePaths(current).includes(path) && path !== current?.cover_path));
       }
       if (!error && mediaChange) await modelGallery.remove(mediaChange.uploaded.filter(path => !current?.media_paths?.includes(path))).catch(() => {});
       throw new Error('Не удалось подтвердить сохранение. Обновите список моделей перед повторной попыткой.');
@@ -2215,7 +2399,7 @@ async function saveCloudModel(fields, selection, row, account, mediaDraft) {
   }
 
   if (row) {
-    const old = [row.stl_path, row.cover_path].filter(path => path !== saved.stl_path && path !== saved.cover_path);
+    const old = [...rowFilePaths(row), row.cover_path].filter(path => path && !rowFilePaths(saved).includes(path) && path !== saved.cover_path);
     if (old.length) await cleanup(old);
     if (mediaChange) await modelGallery.remove((row.media_paths || []).filter(path => !saved.media_paths?.includes(path))).catch(() => {
       note(accountStatus, 'Модель сохранена, но старые изображения не удалось удалить из хранилища.', true);
@@ -2291,7 +2475,7 @@ addForm.addEventListener('submit', async event => {
   }
   saving = true;
   if (!publicCountFields.hidden) publicCountFields.disabled = true;
-  const editorControls = [unitsInput, recalculateButton, byId('model-attribution-fields'), editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
+  const editorControls = [partEditor, unitsInput, recalculateButton, byId('model-attribution-fields'), editorPaletteField, recapture, editorShowcase, closeEditor, fileInput, photoInput, stlCoverButton, azimuthInput, elevationInput, byId('model-media-fields')];
   addButton.disabled = true;
   for (const control of editorControls) control.disabled = true;
   note(addStatus, supabase ? 'Сохраняем модель в общем каталоге…' : 'Сохраняем модель…');
@@ -2330,7 +2514,10 @@ addForm.addEventListener('submit', async event => {
         if (error) throw new Error('Для настроек витрины выполните catalog/showcase-and-orders.sql в Supabase.');
       }
       if (!draft && editing && editorPalette.value !== normalizeColor(editing.cover_color)) fields.cover_color = editorPalette.value;
-      await saveCloudModel(fields, draft, editing, user, modelGallery.draft());
+      const selection = !partEditor.hidden && (partsChanged || (draft && editorParts.length))
+        ? {...draft, parts: editorParts.map(part => ({...part}))} : draft;
+      if (selection?.parts && (!selection.parts.length || !selection.png)) throw new Error('Добавьте детали и дождитесь готовности обложки.');
+      await saveCloudModel(fields, selection, editing, user, modelGallery.draft());
       listPublicModels(true);
       if (!accountPanel.hidden) loadDashboard();
     } else {
@@ -2343,7 +2530,7 @@ addForm.addEventListener('submit', async event => {
     saving = false;
     publicCountFields.disabled = publicCountFields.hidden || !isModerator();
     for (const control of editorControls) control.disabled = false;
-    unitsInput.disabled = modelExtension(fileInput.files[0]?.name || editing?.stl_path) === '3mf';
+    unitsInput.disabled = (editorParts[0]?.extension || modelExtension(fileInput.files[0]?.name || editing?.stl_path)) === '3mf';
     addButton.disabled = !editing && !draft?.file;
   }
 });
@@ -2399,8 +2586,8 @@ deleteDialog.addEventListener('close', async () => {
       const { error } = await storage.remove(paths.slice(start, start + 100));
       if (error) throw error;
     }
-    if (driveFileId(row.stl_path)) {
-      try { await removeAsset(row.stl_path); }
+    for (const filePath of rowFilePaths(row).filter(path => driveFileId(path))) {
+      try { await removeAsset(filePath); }
       catch (error) {
         if (owner !== user.id && isModerator()) {
           throw new Error(error.message + ' Проверьте, что Google Apps Script развёрнут с обновлённым Code.gs.');
